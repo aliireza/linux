@@ -80,6 +80,14 @@
 #include <linux/jump_label_ratelimit.h>
 #include <net/busy_poll.h>
 
+#include <linux/module.h>
+static int drop_freq; /* drop one pkt ever this many */
+module_param(drop_freq, int, 0644);
+static int lossy_local_port = 2345; /* drop pkts, ignore holes on this port */
+module_param(lossy_local_port, int, 0644);
+static int lossy_remote_port = 0; /* drop pkts, ignore holes on this port */
+module_param(lossy_remote_port, int, 0644);
+
 int sysctl_tcp_max_orphans __read_mostly = NR_FILE;
 
 #define FLAG_DATA		0x01 /* Incoming frame contained data.		*/
@@ -5570,6 +5578,16 @@ void tcp_rcv_established(struct sock *sk, struct sk_buff *skb)
 
 	tp->rx_opt.saw_tstamp = 0;
 
+	if (tp->ignore_holes) {
+		const u32 seq = TCP_SKB_CB(skb)->seq;
+		if (drop_freq && tp->tcp_test_drops++ >= drop_freq) {
+			tp->tcp_test_drops = 0;
+			goto discard;   /* artificial drop */
+		}
+		if (after(seq, tp->rcv_nxt)) /* Pretend this is in order */
+			tcp_rcv_nxt_update(tp, seq);
+	}
+
 	/*	pred_flags is 0xS?10 << 16 + snd_wnd
 	 *	if header_prediction is to be made
 	 *	'S' will always be tp->tcp_header_len >> 2
@@ -5745,12 +5763,25 @@ void tcp_init_transfer(struct sock *sk, int bpf_op)
 	tcp_init_buffer_space(sk);
 }
 
+/* Testing. Conditionally set tp->ignore_holes. Should be a setsockopt */
+static void tcp_update_ignore_holes(struct sock *sk)
+{
+	if (READ_ONCE(lossy_local_port) == ntohs(inet_sk(sk)->inet_sport) ||
+	READ_ONCE(lossy_remote_port) == ntohs(inet_sk(sk)->inet_dport)) {
+		pr_info("XXX ignore holes for ports local %d remote %d\n",
+			ntohs(inet_sk(sk)->inet_sport),
+			ntohs(inet_sk(sk)->inet_dport));
+		tcp_sk(sk)->ignore_holes = 1;
+       }
+}
+
 void tcp_finish_connect(struct sock *sk, struct sk_buff *skb)
 {
 	struct tcp_sock *tp = tcp_sk(sk);
 	struct inet_connection_sock *icsk = inet_csk(sk);
 
 	tcp_set_state(sk, TCP_ESTABLISHED);
+	tcp_update_ignore_holes(sk);
 	icsk->icsk_ack.lrcvtime = tcp_jiffies32;
 
 	if (skb) {
@@ -6222,6 +6253,7 @@ int tcp_rcv_state_process(struct sock *sk, struct sk_buff *skb)
 		}
 		smp_mb();
 		tcp_set_state(sk, TCP_ESTABLISHED);
+		tcp_update_ignore_holes(sk);
 		sk->sk_state_change(sk);
 
 		/* Note, that this wakeup is only for marginal crossed SYN case.
