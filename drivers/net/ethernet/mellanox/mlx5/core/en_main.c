@@ -64,6 +64,12 @@
 #include "en/xsk/tx.h"
 #include "en/hv_vhca_stats.h"
 
+static bool alloc_buffer_pool=true; /* Allocate a large pool of pages using DMA-API */
+module_param(alloc_buffer_pool, bool, 0644);
+static bool shuffle_pool=false; /* Shuffle buffers based on the shuffling factor */
+module_param(shuffle_pool, bool, 0644);
+static int shuffle_factor=16; /* Distribute pages into shuffle_factor pools in a round-robin way and then reorder the array */
+module_param(shuffle_factor, int, 0644);
 
 bool mlx5e_check_fragmented_striding_rq_cap(struct mlx5_core_dev *mdev)
 {
@@ -2991,6 +2997,34 @@ int mlx5e_safe_switch_channels(struct mlx5e_priv *priv,
 	return 0;
 }
 
+
+/* Allocating a large pool per NUMA node for each mlx5 device*/
+int mlx5e_buf_pool_init(struct mlx5e_priv *priv)
+{	
+	int i;
+	
+	priv->buf_pools = kcalloc(NR_CPUS, sizeof(struct mlx5_buf_pool),
+			     GFP_KERNEL);
+	if (!priv->buf_pools)
+		goto err_out;
+
+	for(i=0; i < NR_CPUS; i++)
+	{
+		priv->buf_pools[i].node = i;
+		priv->buf_pools[i].frags = kcalloc(MLX_BUF_POOL_SIZE / PAGE_SIZE, sizeof(struct mlx5_buf_list),
+			     GFP_KERNEL);
+		if (!priv->buf_pools[i].frags)
+			goto err_out;
+
+		/*TODO: Allocate DMA-able buffers */
+	}
+
+	return 0;
+err_out:
+	return -ENOMEM;
+}
+
+
 int mlx5e_safe_reopen_channels(struct mlx5e_priv *priv)
 {
 	struct mlx5e_channels new_channels = {};
@@ -2998,6 +3032,7 @@ int mlx5e_safe_reopen_channels(struct mlx5e_priv *priv)
 	new_channels.params = priv->channels.params;
 	return mlx5e_safe_switch_channels(priv, &new_channels, NULL);
 }
+
 
 void mlx5e_timestamp_init(struct mlx5e_priv *priv)
 {
@@ -5011,6 +5046,22 @@ static int mlx5e_nic_init(struct mlx5_core_dev *mdev,
 	struct mlx5e_priv *priv = netdev_priv(netdev);
 	struct mlx5e_rss_params *rss = &priv->rss_params;
 	int err;
+	
+	/* TODO: Implement deallocate */
+	if(alloc_buffer_pool) {
+		err = mlx5e_buf_pool_init(priv);
+		if (err)
+			mlx5_core_err(mdev, "buf pool allocation failed, %d\n", err);
+		printk(KERN_INFO "Allocated Buffer Pool!\n");
+
+		/* TODO: Call shuffle function */
+		if(shuffle_pool)
+		{
+			printk(KERN_INFO "shuffle_pool\n");
+		}
+	}
+
+	
 
 	err = mlx5e_netdev_init(netdev, priv, mdev, profile, ppriv);
 	if (err)

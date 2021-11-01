@@ -332,6 +332,17 @@ struct mlx5_frag_buf {
 	u8			page_shift;
 };
 
+#define MLX_BUF_POOL_SIZE	1024 * 1024 * 1024UL /* 1 GB per NUMA NODE */
+
+struct mlx5_buf_pool {
+	struct mlx5_buf_list	*frags;
+	int			node;
+	u32			npages;
+	u32			nfree;
+	struct mlx5_buf_list	*free_head;
+	struct mlx5_buf_list	*free_tail;
+};
+
 struct mlx5_frag_buf_ctrl {
 	struct mlx5_buf_list   *frags;
 	u32			sz_m1;

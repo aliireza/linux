@@ -876,6 +876,7 @@ struct mlx5e_priv {
 #if IS_ENABLED(CONFIG_PCI_HYPERV_INTERFACE)
 	struct mlx5e_hv_vhca_stats_agent stats_agent;
 #endif
+	struct mlx5_buf_pool		*buf_pools;
 };
 
 struct mlx5e_profile {
