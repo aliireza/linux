@@ -307,3 +307,56 @@ void mlx5_fill_page_frag_array(struct mlx5_frag_buf *buf, __be64 *pas)
 		pas[i] = cpu_to_be64(buf->frags[i].map);
 }
 EXPORT_SYMBOL_GPL(mlx5_fill_page_frag_array);
+
+int mlx5_buf_pool_alloc_node(struct mlx5_core_dev *dev, u32 npages,
+			     struct mlx5_buf_pool *buf_pool, int node)
+{
+	int i;
+	dma_addr_t t;
+
+	buf_pool->npages = npages;
+	buf_pool->nfree = npages;
+
+	buf_pool->node = node;
+	buf_pool->bufs =
+		kcalloc(npages, sizeof(struct mlx5_buf_list), GFP_KERNEL);
+	if (!buf_pool->bufs)
+		goto err_out;
+
+	for (i = 0; i < npages; i++) {
+		buf_pool->bufs[i].buf =
+			mlx5_dma_zalloc_coherent_node(dev, PAGE_SIZE, &t, node);
+		if (!buf_pool->bufs[i].buf)
+			goto err_free_buf;
+
+		buf_pool->bufs[i].map = t;
+	}
+
+	buf_pool->free_head = buf_pool->bufs;
+	buf_pool->free_tail = buf_pool->bufs + npages - 1;
+
+	return 0;
+
+err_free_buf:
+	while (i--)
+		dma_free_coherent(dev->device, PAGE_SIZE, buf_pool->bufs[i].buf,
+				  buf_pool->bufs[i].map);
+	kfree(buf_pool->bufs);
+
+err_out:
+	return -ENOMEM;
+}
+EXPORT_SYMBOL(mlx5_buf_pool_alloc_node);
+
+void mlx5_buf_pool_free(struct mlx5_core_dev *dev,
+			struct mlx5_buf_pool *buf_pool)
+{
+	int i;
+
+	for (i = 0; i < buf_pool->npages; i++) {
+		dma_free_coherent(dev->device, PAGE_SIZE, buf_pool->bufs[i].buf,
+				  buf_pool->bufs[i].map);
+	}
+	kfree(buf_pool->bufs);
+}
+EXPORT_SYMBOL(mlx5_buf_pool_free);

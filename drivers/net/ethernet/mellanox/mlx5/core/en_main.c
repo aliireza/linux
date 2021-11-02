@@ -2999,10 +2999,12 @@ int mlx5e_safe_switch_channels(struct mlx5e_priv *priv,
 
 
 /* Allocating a large pool per NUMA node for each mlx5 device*/
+// TODO: move to alloc.c similar to mlx5_buf_alloc_node
 int mlx5e_buf_pool_init(struct mlx5e_priv *priv)
 {	
 	int i;
-	
+	int err;
+
 	priv->buf_pools = kcalloc(NR_CPUS, sizeof(struct mlx5_buf_pool),
 			     GFP_KERNEL);
 	if (!priv->buf_pools)
@@ -3010,20 +3012,37 @@ int mlx5e_buf_pool_init(struct mlx5e_priv *priv)
 
 	for(i=0; i < NR_CPUS; i++)
 	{
-		priv->buf_pools[i].node = i;
-		priv->buf_pools[i].frags = kcalloc(MLX_BUF_POOL_SIZE / PAGE_SIZE, sizeof(struct mlx5_buf_list),
-			     GFP_KERNEL);
-		if (!priv->buf_pools[i].frags)
-			goto err_out;
+		err = mlx5_buf_pool_alloc_node(priv->mdev,
+					       MLX5_BUF_POOL_SIZE / PAGE_SIZE,
+					       &priv->buf_pools[i],
+					       priv->buf_pools[i].node);
 
-		/*TODO: Allocate DMA-able buffers */
+		if (!err)
+			goto err_free_pool;
 	}
 
 	return 0;
+err_free_pool:
+	while (i--)
+		mlx5_buf_pool_free(priv->mdev, &priv->buf_pools[i]);
+	kfree(priv->buf_pools);
 err_out:
 	return -ENOMEM;
 }
 
+/* Free per NUMA-node pools */
+//TODO: Could call clean only when alloc_buffer_pool is enabled
+void mlx5e_buf_pool_cleanup(struct mlx5e_priv *priv)
+{
+	int i;
+
+	if (priv->buf_pools) {
+		for (i = 0; i < NR_CPUS; i++) {
+			mlx5_buf_pool_free(priv->mdev, &priv->buf_pools[i]);
+		}
+		kfree(priv->buf_pools);
+	}
+}
 
 int mlx5e_safe_reopen_channels(struct mlx5e_priv *priv)
 {
@@ -5087,6 +5106,7 @@ static int mlx5e_nic_init(struct mlx5_core_dev *mdev,
 
 static void mlx5e_nic_cleanup(struct mlx5e_priv *priv)
 {
+	mlx5e_buf_pool_cleanup(priv);
 	mlx5e_health_destroy_reporters(priv);
 	mlx5e_tls_cleanup(priv);
 	mlx5e_ipsec_cleanup(priv);

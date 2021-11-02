@@ -332,10 +332,10 @@ struct mlx5_frag_buf {
 	u8			page_shift;
 };
 
-#define MLX_BUF_POOL_SIZE	1024 * 1024 * 1024UL /* 1 GB per NUMA NODE */
+#define MLX5_BUF_POOL_SIZE 1024 * 1024 * 1024UL /* 1 GB per NUMA NODE */
 
 struct mlx5_buf_pool {
-	struct mlx5_buf_list	*frags;
+	struct mlx5_buf_list *bufs;
 	int			node;
 	u32			npages;
 	u32			nfree;
@@ -949,6 +949,10 @@ void mlx5_buf_free(struct mlx5_core_dev *dev, struct mlx5_frag_buf *buf);
 int mlx5_frag_buf_alloc_node(struct mlx5_core_dev *dev, int size,
 			     struct mlx5_frag_buf *buf, int node);
 void mlx5_frag_buf_free(struct mlx5_core_dev *dev, struct mlx5_frag_buf *buf);
+int mlx5_buf_pool_alloc_node(struct mlx5_core_dev *dev, u32 npages,
+			     struct mlx5_buf_pool *buf_pool, int node);
+void mlx5_buf_pool_free(struct mlx5_core_dev *dev,
+			struct mlx5_buf_pool *buf_pool);
 struct mlx5_cmd_mailbox *mlx5_alloc_cmd_mailbox_chain(struct mlx5_core_dev *dev,
 						      gfp_t flags, int npages);
 void mlx5_free_cmd_mailbox_chain(struct mlx5_core_dev *dev,
