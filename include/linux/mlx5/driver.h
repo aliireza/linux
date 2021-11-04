@@ -730,6 +730,7 @@ struct mlx5_core_dev {
 	struct mlx5_fw_tracer   *tracer;
 	u32                      vsc_addr;
 	struct mlx5_hv_vhca	*hv_vhca;
+	struct mlx5_buf_pool		*buf_pools;
 };
 
 struct mlx5_db {
@@ -953,6 +954,7 @@ int mlx5_buf_pool_alloc_node(struct mlx5_core_dev *dev, u32 npages,
 			     struct mlx5_buf_pool *buf_pool, int node);
 void mlx5_buf_pool_free(struct mlx5_core_dev *dev,
 			struct mlx5_buf_pool *buf_pool);
+int mlx5_buf_pool_shuffle(struct mlx5_buf_pool *buf_pool, int shuffle_factor);
 struct mlx5_cmd_mailbox *mlx5_alloc_cmd_mailbox_chain(struct mlx5_core_dev *dev,
 						      gfp_t flags, int npages);
 void mlx5_free_cmd_mailbox_chain(struct mlx5_core_dev *dev,

@@ -56,6 +56,8 @@ static void *mlx5_dma_zalloc_coherent_node(struct mlx5_core_dev *dev,
 					   size_t size, dma_addr_t *dma_handle,
 					   int node)
 {
+	struct mlx5_buf_pool *pool;
+
 	struct mlx5_priv *priv = &dev->priv;
 	struct device *device = dev->device;
 	int original_node;
@@ -64,8 +66,28 @@ static void *mlx5_dma_zalloc_coherent_node(struct mlx5_core_dev *dev,
 	mutex_lock(&priv->alloc_mutex);
 	original_node = dev_to_node(device);
 	set_dev_node(device, node);
-	cpu_handle = dma_alloc_coherent(device, size, dma_handle,
+
+	// if(dev->buf_pools){
+	// 	pool = dev->buf_pools + node;
+	// 	if(size <= PAGE_SIZE && pool->nfree >0){
+	// 		printk(KERN_INFO"Using buffer pool: %d\n",pool->nfree);
+	// 		cpu_handle= pool->free_head->buf;
+	// 		(*dma_handle) = pool->free_head->map;
+	// 		if (!pool->nfree) {
+	// 			pool->free_head = 0;
+	// 			pool->free_tail = 0;
+	// 		} else {
+	// 			pool->free_head++;
+	// 		}
+	// 	}
+
+	// }
+	// if(!cpu_handle) {
+	// 	printk(KERN_INFO"Using DMA API\n");
+		cpu_handle = dma_alloc_coherent(device, size, dma_handle,
 					GFP_KERNEL);
+	// }
+
 	set_dev_node(device, original_node);
 	mutex_unlock(&priv->alloc_mutex);
 	return cpu_handle;
@@ -320,8 +342,10 @@ int mlx5_buf_pool_alloc_node(struct mlx5_core_dev *dev, u32 npages,
 	buf_pool->node = node;
 	buf_pool->bufs =
 		kcalloc(npages, sizeof(struct mlx5_buf_list), GFP_KERNEL);
+
 	if (!buf_pool->bufs)
 		goto err_out;
+
 
 	for (i = 0; i < npages; i++) {
 		buf_pool->bufs[i].buf =
@@ -353,10 +377,59 @@ void mlx5_buf_pool_free(struct mlx5_core_dev *dev,
 {
 	int i;
 
-	for (i = 0; i < buf_pool->npages; i++) {
-		dma_free_coherent(dev->device, PAGE_SIZE, buf_pool->bufs[i].buf,
-				  buf_pool->bufs[i].map);
+	for (i = 0; i < buf_pool->nfree; i++) {
+		dma_free_coherent(dev->device, PAGE_SIZE, buf_pool->bufs[buf_pool->npages - buf_pool->nfree + i].buf,
+				  buf_pool->bufs[buf_pool->npages - buf_pool->nfree + i].map);
 	}
 	kfree(buf_pool->bufs);
 }
 EXPORT_SYMBOL(mlx5_buf_pool_free);
+
+int mlx5_buf_pool_shuffle(struct mlx5_buf_pool *buf_pool, int shuffle_factor)
+{
+	unsigned long i;
+	unsigned long new_index;
+	
+	printk(KERN_INFO"mlx5_buf_pool_shuffle \n");
+
+	struct mlx5_buf_list *tmp_pool = kcalloc(buf_pool->npages, sizeof(struct mlx5_buf_list),
+			     GFP_KERNEL);
+
+	if(!tmp_pool)
+		goto err_out;
+
+	/* Distribute the pages in the new page pool in a round-robin way */
+	for (i = 0; i < buf_pool->npages; i++) {
+		new_index =
+			(i % shuffle_factor) * buf_pool->npages / shuffle_factor +
+			(i - (i % shuffle_factor)) / shuffle_factor;
+		printk(KERN_INFO"SHUFFLE: i: %d new_index: %d",i, new_index);
+		tmp_pool[new_index].buf = buf_pool->bufs[i].buf;
+		tmp_pool[new_index].map = buf_pool->bufs[i].map;
+	}
+
+	/* Reorder the main pool */
+	for (i = 0; i < buf_pool->npages; i++) {
+		buf_pool->bufs[i].buf = tmp_pool[i].buf;
+		buf_pool->bufs[i].map = tmp_pool[i].map;
+	}
+
+	kfree(tmp_pool);
+
+	return 0;
+
+err_out:
+	return -ENOMEM;
+}
+EXPORT_SYMBOL(mlx5_buf_pool_shuffle);
+
+// void *mlx5_buf_pool_get_buf(struct mlx5_buf_pool *buf_pool)
+// {
+// 	if(buf_pool->nfree)
+
+// 	return 0;
+
+// err_out:
+// 	return -ENOMEM;
+// }
+// EXPORT_SYMBOL(mlx5_buf_pool_get_buf);

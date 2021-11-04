@@ -240,6 +240,7 @@ static inline bool mlx5e_rx_cache_get(struct mlx5e_rq *rq,
 static inline int mlx5e_page_alloc_pool(struct mlx5e_rq *rq,
 					struct mlx5e_dma_info *dma_info)
 {
+	printk(KERN_INFO"mlx5e_page_alloc_pool");
 	if (mlx5e_rx_cache_get(rq, dma_info))
 		return 0;
 
@@ -483,6 +484,7 @@ static inline void mlx5e_fill_icosq_frag_edge(struct mlx5e_icosq *sq,
 
 static int mlx5e_alloc_rx_mpwqe(struct mlx5e_rq *rq, u16 ix)
 {
+	printk(KERN_INFO"mlx5e_alloc_rx_mpwqe");
 	struct mlx5e_mpw_info *wi = &rq->mpwqe.info[ix];
 	struct mlx5e_dma_info *dma_info = &wi->umr.dma_info[0];
 	struct mlx5e_icosq *sq = &rq->channel->icosq;

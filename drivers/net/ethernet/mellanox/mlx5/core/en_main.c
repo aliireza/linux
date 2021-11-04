@@ -64,11 +64,13 @@
 #include "en/xsk/tx.h"
 #include "en/hv_vhca_stats.h"
 
-static bool alloc_buffer_pool=true; /* Allocate a large pool of pages using DMA-API */
+static bool alloc_buffer_pool = 1; /* Allocate a large pool of pages using DMA-API */
 module_param(alloc_buffer_pool, bool, 0644);
-static bool shuffle_pool=false; /* Shuffle buffers based on the shuffling factor */
+static long buffer_pool_size = 128; /* Number of pages in the buffer pool */
+module_param(buffer_pool_size, long, 0644);
+static bool shuffle_pool = 0; /* Shuffle buffers based on the shuffling factor */
 module_param(shuffle_pool, bool, 0644);
-static int shuffle_factor=16; /* Distribute pages into shuffle_factor pools in a round-robin way and then reorder the array */
+static int shuffle_factor = 16; /* Distribute pages into shuffle_factor pools in a round-robin way and then reorder the array */
 module_param(shuffle_factor, int, 0644);
 
 bool mlx5e_check_fragmented_striding_rq_cap(struct mlx5_core_dev *mdev)
@@ -563,6 +565,7 @@ static int mlx5e_alloc_rq(struct mlx5e_channel *c,
 		 * required state to clear. And page_pool gracefully handle
 		 * elevated refcnt.
 		 */
+		printk(KERN_INFO"rq:ix:%d page_pool_create",rq->ix);
 		rq->page_pool = page_pool_create(&pp_params);
 		if (IS_ERR(rq->page_pool)) {
 			err = PTR_ERR(rq->page_pool);
@@ -3000,47 +3003,56 @@ int mlx5e_safe_switch_channels(struct mlx5e_priv *priv,
 
 /* Allocating a large pool per NUMA node for each mlx5 device*/
 // TODO: move to alloc.c similar to mlx5_buf_alloc_node
-int mlx5e_buf_pool_init(struct mlx5e_priv *priv)
-{	
-	int i;
+int mlx5e_buf_pool_init(struct mlx5_core_dev *mdev)
+{
+	int i,j;
 	int err;
-
-	priv->buf_pools = kcalloc(NR_CPUS, sizeof(struct mlx5_buf_pool),
+	int n_numa_nodes = 2; /*TODO: retrieve automatically */
+	mdev->buf_pools = kcalloc(n_numa_nodes, sizeof(struct mlx5_buf_pool),
 			     GFP_KERNEL);
-	if (!priv->buf_pools)
+	if (!mdev->buf_pools)
 		goto err_out;
 
-	for(i=0; i < NR_CPUS; i++)
+	for(i=0; i < n_numa_nodes; i++)
 	{
-		err = mlx5_buf_pool_alloc_node(priv->mdev,
-					       MLX5_BUF_POOL_SIZE / PAGE_SIZE,
-					       &priv->buf_pools[i],
-					       priv->buf_pools[i].node);
-
+		err = mlx5_buf_pool_alloc_node(mdev,
+					       buffer_pool_size,
+					       &mdev->buf_pools[i],
+					       mdev->buf_pools[i].node);
 		if (!err)
 			goto err_free_pool;
+		
+		if(shuffle_pool)
+		{
+			mlx5_buf_pool_shuffle(&mdev->buf_pools[i],shuffle_factor);
+			printk(KERN_INFO"shuffle_pool\n");
+		}
 	}
 
 	return 0;
 err_free_pool:
 	while (i--)
-		mlx5_buf_pool_free(priv->mdev, &priv->buf_pools[i]);
-	kfree(priv->buf_pools);
+		mlx5_buf_pool_free(mdev, &mdev->buf_pools[i]);
+	kfree(mdev->buf_pools);
 err_out:
 	return -ENOMEM;
 }
 
 /* Free per NUMA-node pools */
 //TODO: Could call clean only when alloc_buffer_pool is enabled
-void mlx5e_buf_pool_cleanup(struct mlx5e_priv *priv)
+void mlx5e_buf_pool_cleanup(struct mlx5_core_dev *dev)
 {
 	int i;
-
-	if (priv->buf_pools) {
-		for (i = 0; i < NR_CPUS; i++) {
-			mlx5_buf_pool_free(priv->mdev, &priv->buf_pools[i]);
+	if (dev->buf_pools) {
+		//TODO:  retrive numa_nodes automatically
+		for (i = 0; i < 2; i++) {
+			if(&dev->buf_pools[i]){
+				printk(KERN_INFO"free buf pool %d\n",i);
+				mlx5_buf_pool_free(dev, &dev->buf_pools[i]);
+			}
+				
 		}
-		kfree(priv->buf_pools);
+		kfree(dev->buf_pools);
 	}
 }
 
@@ -5065,26 +5077,21 @@ static int mlx5e_nic_init(struct mlx5_core_dev *mdev,
 	struct mlx5e_priv *priv = netdev_priv(netdev);
 	struct mlx5e_rss_params *rss = &priv->rss_params;
 	int err;
-	
-	/* TODO: Implement deallocate */
-	if(alloc_buffer_pool) {
-		err = mlx5e_buf_pool_init(priv);
-		if (err)
-			mlx5_core_err(mdev, "buf pool allocation failed, %d\n", err);
-		printk(KERN_INFO "Allocated Buffer Pool!\n");
-
-		/* TODO: Call shuffle function */
-		if(shuffle_pool)
-		{
-			printk(KERN_INFO "shuffle_pool\n");
-		}
-	}
-
-	
 
 	err = mlx5e_netdev_init(netdev, priv, mdev, profile, ppriv);
 	if (err)
 		return err;
+
+	if(alloc_buffer_pool) {
+		err = mlx5e_buf_pool_init(mdev);
+
+		if (!err)
+			mlx5_core_err(mdev, "buf pool allocation failed, %d\n", err);
+
+		printk(KERN_INFO "Allocated Buffer Pool!\n");
+	}
+
+	// mlx5e_buf_pool_cleanup(priv);
 
 	mlx5e_build_nic_params(mdev, &priv->xsk, rss, &priv->channels.params,
 			       priv->max_nch, netdev->mtu);
@@ -5106,7 +5113,6 @@ static int mlx5e_nic_init(struct mlx5_core_dev *mdev,
 
 static void mlx5e_nic_cleanup(struct mlx5e_priv *priv)
 {
-	mlx5e_buf_pool_cleanup(priv);
 	mlx5e_health_destroy_reporters(priv);
 	mlx5e_tls_cleanup(priv);
 	mlx5e_ipsec_cleanup(priv);
@@ -5541,6 +5547,7 @@ static void mlx5e_remove(struct mlx5_core_dev *mdev, void *vpriv)
 #ifdef CONFIG_MLX5_CORE_EN_DCB
 	mlx5e_dcbnl_delete_app(priv);
 #endif
+	// mlx5e_buf_pool_cleanup(priv);
 	unregister_netdev(priv->netdev);
 	mlx5e_detach(mdev, vpriv);
 	mlx5e_destroy_netdev(priv);
