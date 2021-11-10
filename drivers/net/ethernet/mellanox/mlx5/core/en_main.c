@@ -2350,7 +2350,7 @@ int mlx5e_open_channels(struct mlx5e_priv *priv,
 	pp_params.order = 0;
 	pp_params.flags = 0; /* No-internal DMA mapping in page_pool */
 	pp_params.pool_size =
-		1024; /* TODO: Should be set based on the rq parameters */
+		2048; /* TODO: Should be set based on the rq parameters */
 	pp_params.nid = dev_to_node(priv->mdev->device);
 	pp_params.dev = priv->mdev->device;
 	pp_params.dma_dir =
