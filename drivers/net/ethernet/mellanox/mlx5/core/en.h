@@ -876,6 +876,7 @@ struct mlx5e_priv {
 #if IS_ENABLED(CONFIG_PCI_HYPERV_INTERFACE)
 	struct mlx5e_hv_vhca_stats_agent stats_agent;
 #endif
+	struct page_pool *page_pools[MLX5E_MAX_NUM_CHANNELS];
 };
 
 struct mlx5e_profile {

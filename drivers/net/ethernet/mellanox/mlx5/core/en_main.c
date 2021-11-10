@@ -551,18 +551,21 @@ static int mlx5e_alloc_rq(struct mlx5e_channel *c,
 		pp_params.nid       = cpu_to_node(c->cpu);
 		pp_params.dev       = c->pdev;
 		pp_params.dma_dir   = rq->buff.map_dir;
+		rq->page_pool = (c->priv->page_pools[rq->ix]);
+		printk(KERN_INFO "page_pool %d assigned to rq %d, size %d",
+		       rq->ix, rq->ix, pool_size);
 
 		/* page_pool can be used even when there is no rq->xdp_prog,
 		 * given page_pool does not handle DMA mapping there is no
 		 * required state to clear. And page_pool gracefully handle
 		 * elevated refcnt.
 		 */
-		rq->page_pool = page_pool_create(&pp_params);
-		if (IS_ERR(rq->page_pool)) {
-			err = PTR_ERR(rq->page_pool);
-			rq->page_pool = NULL;
-			goto err_free;
-		}
+		// rq->page_pool = page_pool_create(&pp_params);
+		// if (IS_ERR(rq->page_pool)) {
+		// 	err = PTR_ERR(rq->page_pool);
+		// 	rq->page_pool = NULL;
+		// 	goto err_free;
+		// }
 		err = xdp_rxq_info_reg_mem_model(&rq->xdp_rxq,
 						 MEM_TYPE_PAGE_POOL, rq->page_pool);
 	}
@@ -2328,8 +2331,11 @@ int mlx5e_open_channels(struct mlx5e_priv *priv,
 			struct mlx5e_channels *chs)
 {
 	struct mlx5e_channel_param *cparam;
+	struct page_pool_params pp_params = { 0 };
+	struct page *pages;
+	struct page *tmp;
 	int err = -ENOMEM;
-	int i;
+	int i, j, k;
 
 	chs->num = chs->params.num_channels;
 
@@ -2339,6 +2345,61 @@ int mlx5e_open_channels(struct mlx5e_priv *priv,
 		goto err_free;
 
 	mlx5e_build_channel_param(priv, &chs->params, cparam);
+
+	/* Allocate page_pools for all rxqs and register it with the device */
+	pp_params.order = 0;
+	pp_params.flags = 0; /* No-internal DMA mapping in page_pool */
+	pp_params.pool_size =
+		1024; /* TODO: Should be set based on the rq parameters */
+	pp_params.nid = dev_to_node(priv->mdev->device);
+	pp_params.dev = priv->mdev->device;
+	pp_params.dma_dir =
+		chs->params.xdp_prog ? DMA_BIDIRECTIONAL : DMA_FROM_DEVICE;
+
+	for (i = 0; i < chs->num; i++) {
+		priv->page_pools[i] = page_pool_create(&pp_params);
+		if (IS_ERR(priv->page_pools[i])) {
+			err = PTR_ERR(priv->page_pools[i]);
+			priv->page_pools[i] = NULL;
+			goto err_free;
+		}
+		printk(KERN_INFO "page pool %d allocated!", i);
+	}
+
+	/* Allocate pages from a 2-MB page (512*4-KB pages) and inject it to the page_pools */
+	/* Round Robin Disatpch */
+	printk(KERN_INFO "round-robin page dispatch!");
+	for (i = 0; i < pp_params.pool_size * chs->num / 512; i++) {
+		pages = alloc_pages_node(0, GFP_ATOMIC | __GFP_MEMALLOC, 9);
+		for (j = 0; j < 512; j++) {
+			tmp = pages + j;
+			printk(KERN_INFO
+			       "%d base %d: %p phy address: %p diff: %lld \n",
+			       i, j, page_to_phys(pages), page_to_phys(tmp),
+			       (page_to_phys(tmp) - page_to_phys(pages)) /
+				       PAGE_SIZE);
+			set_page_count(tmp, 1);
+			// page_pool_recycle_direct(priv->page_pools[(int)(j/chs->num)], tmp);
+			page_pool_recycle_direct(priv->page_pools[j % chs->num],
+						 tmp);
+		}
+	}
+
+	// /* Uniform */
+	// for(k=0;k<chs->num;k++) {
+	// 	for(i=0;i<pp_params.pool_size/512;i++){
+	// 		pages = alloc_pages_node(0, GFP_ATOMIC | __GFP_MEMALLOC , 9);
+	// 		for(j=0;j<512;j++){
+	// 			tmp=pages+j;
+	// 			printk(KERN_INFO"%d base %d: %p phy address: %p diff: %lld \n", i, j, page_to_phys(pages), page_to_phys(tmp), (page_to_phys(tmp) - page_to_phys(pages))/PAGE_SIZE);
+	// 			set_page_count(tmp,1);
+	// 			// page_pool_recycle_direct(priv->page_pools[(int)(j/chs->num)], tmp);
+	// 			page_pool_recycle_direct(priv->page_pools[k], tmp);
+	// 		}
+	// 	}
+	// }
+	// printk(KERN_INFO"uniform page dispatch!");
+
 	for (i = 0; i < chs->num; i++) {
 		struct xdp_umem *umem = NULL;
 
