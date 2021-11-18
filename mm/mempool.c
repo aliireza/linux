@@ -62,7 +62,7 @@ static void check_element(mempool_t *pool, void *element)
 		__check_element(pool, element, ksize(element));
 
 	/* Mempools backed by page allocator */
-	if (pool->free == mempool_free_pages) {
+	if (pool->free == mempool_free_pages || pool->free == mempool_free_pages_split) {
 		int order = (int)(long)pool->pool_data;
 		void *addr = kmap_atomic((struct page *)element);
 
@@ -134,6 +134,7 @@ static void *remove_element(mempool_t *pool)
 	BUG_ON(pool->curr_nr < 0);
 	kasan_unpoison_element(pool, element);
 	check_element(pool, element);
+	// printk(KERN_INFO "remove element: curr %d", pool->curr_nr);
 	return element;
 }
 
@@ -150,10 +151,17 @@ static void *remove_element(mempool_t *pool)
  */
 void mempool_exit(mempool_t *pool)
 {
-	while (pool->curr_nr) {
-		void *element = remove_element(pool);
-		pool->free(element, pool->pool_data);
-	}
+	if(pool->split_hugepages){
+		while(pool->curr_huge_nr--)
+			__free_pages(pool->hugepages[pool->curr_huge_nr], 9);
+		kfree(pool->hugepages);
+		pool->hugepages=NULL;
+	}else {
+		while (pool->curr_nr) {
+			void *element = remove_element(pool);
+			pool->free(element, pool->pool_data);
+		}
+ 	}
 	kfree(pool->elements);
 	pool->elements = NULL;
 }
@@ -210,6 +218,60 @@ int mempool_init_node(mempool_t *pool, int min_nr, mempool_alloc_t *alloc_fn,
 	return 0;
 }
 EXPORT_SYMBOL(mempool_init_node);
+
+int mempool_init_node_split(mempool_t *pool, int min_nr, mempool_alloc_t *alloc_fn,
+		      mempool_free_t *free_fn, void *pool_data,
+		      gfp_t gfp_mask, int node_id)
+{
+	int order = (int)(long)pool_data;
+	spin_lock_init(&pool->lock);
+	pool->min_nr	= min_nr;
+	pool->pool_data = pool_data;
+	pool->alloc	= alloc_fn;
+	pool->free	= free_fn;
+	init_waitqueue_head(&pool->wait);
+	pool->curr_huge_nr=0;
+
+	pool->elements = kmalloc_array_node(min_nr, sizeof(void *),
+					    gfp_mask, node_id);
+	if (!pool->elements)
+		return -ENOMEM;
+
+	if(pool->split_hugepages){
+		// printk(KERN_INFO "mempool_init_node: split_hugepages");
+		pool->hugepages = kmalloc_array_node( min_nr/(1UL << order), sizeof(struct page*),
+					    gfp_mask, node_id);
+
+		if(!pool->hugepages)
+			return -ENOMEM;
+	}
+
+	/*
+	 * First pre-allocate the guaranteed number of buffers.
+	 */
+	while (pool->curr_nr < pool->min_nr) {
+		struct page *pages;
+		int i;
+		pages = pool->alloc(gfp_mask, 9);
+		if (unlikely(!pages)) {
+			mempool_exit(pool);
+			return -ENOMEM;
+		}
+		// printk(KERN_INFO "mempool_init_node: while loop: %d", pool->curr_nr);
+		// printk(KERN_INFO "split_hugepages in while");
+		trace_printk("mempool_init: huge_page %d: %p\n",pool->curr_huge_nr,page_to_phys(pages));
+		
+		pool->hugepages[pool->curr_huge_nr++]=pages;
+		// printk(KERN_INFO"hugepage added");
+		for(i=0;i< (1<<9);i++) {
+			// printk(KERN_INFO "mempool_init_node: for loop: %d", i);
+			add_element(pool,pages+i);
+		}	
+	}
+
+	return 0;
+}
+EXPORT_SYMBOL(mempool_init_node_split);
 
 /**
  * mempool_init - initialize a memory pool
@@ -277,6 +339,28 @@ mempool_t *mempool_create_node(int min_nr, mempool_alloc_t *alloc_fn,
 	return pool;
 }
 EXPORT_SYMBOL(mempool_create_node);
+
+mempool_t *mempool_create_node_split(int min_nr, mempool_alloc_t *alloc_fn,
+			       mempool_free_t *free_fn, void *pool_data,
+			       gfp_t gfp_mask, int node_id)
+{
+	mempool_t *pool;
+
+	pool = kzalloc_node(sizeof(*pool), gfp_mask, node_id);
+	if (!pool)
+		return NULL;
+
+	pool->split_hugepages=1;
+
+	if (mempool_init_node_split(pool, min_nr, alloc_fn, free_fn, pool_data,
+			      gfp_mask, node_id)) {
+		kfree(pool);
+		return NULL;
+	}
+
+	return pool;
+}
+EXPORT_SYMBOL(mempool_create_node_split);
 
 /**
  * mempool_resize - resize an existing memory pool
@@ -388,12 +472,19 @@ void *mempool_alloc(mempool_t *pool, gfp_t gfp_mask)
 
 	gfp_temp = gfp_mask & ~(__GFP_DIRECT_RECLAIM|__GFP_IO);
 
+	if(pool->split_hugepages){
+		// printk(KERN_INFO"goto use_pool");
+		goto use_pool;
+	}
+		
+ 
 repeat_alloc:
-
+	// printk(KERN_INFO "mempool_alloc(): repeat_alloc");
 	element = pool->alloc(gfp_temp, pool->pool_data);
 	if (likely(element != NULL))
 		return element;
-
+use_pool:
+	// printk(KERN_INFO "mempool_alloc(): use_pool");
 	spin_lock_irqsave(&pool->lock, flags);
 	if (likely(pool->curr_nr)) {
 		element = remove_element(pool);
@@ -492,6 +583,8 @@ void mempool_free(void *element, mempool_t *pool)
 	if (unlikely(pool->curr_nr < pool->min_nr)) {
 		spin_lock_irqsave(&pool->lock, flags);
 		if (likely(pool->curr_nr < pool->min_nr)) {
+			// printk(KERN_INFO "mempool_free: add_elem");
+			trace_printk("mempool_free: %p\n",page_to_phys((struct page*)element));
 			add_element(pool, element);
 			spin_unlock_irqrestore(&pool->lock, flags);
 			wake_up(&pool->wait);
@@ -551,7 +644,20 @@ EXPORT_SYMBOL(mempool_alloc_pages);
 
 void mempool_free_pages(void *element, void *pool_data)
 {
+	// printk(KERN_INFO "mempool_free_pages");
 	int order = (int)(long)pool_data;
 	__free_pages(element, order);
 }
 EXPORT_SYMBOL(mempool_free_pages);
+
+void mempool_free_pages_split(void *element, void *pool_data)
+{
+	int i;
+	// printk(KERN_INFO "mempool_free_pages_split");
+	int order = (int)(long)pool_data;
+	// for(i=0;i<pool->curr_huge_nr;i++){
+	// 	__free_pages((void*)pool->hugepages[i], order);
+	// }
+	
+}
+EXPORT_SYMBOL(mempool_free_pages_split);

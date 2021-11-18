@@ -7,6 +7,7 @@
 
 #include <linux/wait.h>
 #include <linux/compiler.h>
+#include <linux/gfp.h>
 
 struct kmem_cache;
 
@@ -23,6 +24,10 @@ typedef struct mempool_s {
 	mempool_alloc_t *alloc;
 	mempool_free_t *free;
 	wait_queue_head_t wait;
+
+	int split_hugepages;	 /* Keep pages in the element list */
+	struct page** hugepages; /* Keep track of hugepages */
+	int curr_huge_nr;	 /* nr of huge pages */
 } mempool_t;
 
 static inline bool mempool_initialized(mempool_t *pool)
@@ -34,12 +39,18 @@ void mempool_exit(mempool_t *pool);
 int mempool_init_node(mempool_t *pool, int min_nr, mempool_alloc_t *alloc_fn,
 		      mempool_free_t *free_fn, void *pool_data,
 		      gfp_t gfp_mask, int node_id);
+int mempool_init_node_split(mempool_t *pool, int min_nr, mempool_alloc_t *alloc_fn,
+		      mempool_free_t *free_fn, void *pool_data,
+		      gfp_t gfp_mask, int node_id);
 int mempool_init(mempool_t *pool, int min_nr, mempool_alloc_t *alloc_fn,
 		 mempool_free_t *free_fn, void *pool_data);
 
 extern mempool_t *mempool_create(int min_nr, mempool_alloc_t *alloc_fn,
 			mempool_free_t *free_fn, void *pool_data);
 extern mempool_t *mempool_create_node(int min_nr, mempool_alloc_t *alloc_fn,
+			mempool_free_t *free_fn, void *pool_data,
+			gfp_t gfp_mask, int nid);
+extern mempool_t *mempool_create_node_split(int min_nr, mempool_alloc_t *alloc_fn,
 			mempool_free_t *free_fn, void *pool_data,
 			gfp_t gfp_mask, int nid);
 
@@ -106,6 +117,24 @@ static inline mempool_t *mempool_create_page_pool(int min_nr, int order)
 {
 	return mempool_create(min_nr, mempool_alloc_pages, mempool_free_pages,
 			      (void *)(long)order);
+}
+
+/*
+ * Allocates 4-KB pages from larger pages of the order specified by pool_data.
+ */
+
+void mempool_free_pages_split(void *element, void *pool_data);
+
+static inline int mempool_init_huge_page_pool(mempool_t *pool, int min_nr, int node_id)
+{
+	return mempool_init_node_split(pool, min_nr, mempool_alloc_pages,
+			    mempool_free_pages_split, 0, GFP_KERNEL, node_id);
+}
+
+static inline mempool_t *mempool_create_huge_page_pool(int min_nr, int node_id)
+{
+	return mempool_create_node_split(min_nr, mempool_alloc_pages, mempool_free_pages_split,
+			      0, GFP_KERNEL, node_id);
 }
 
 #endif /* _LINUX_MEMPOOL_H */
