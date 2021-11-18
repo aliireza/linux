@@ -23,6 +23,7 @@
 #include <linux/types.h>
 #include <linux/compiler.h>
 #include <linux/slab.h>
+#include <linux/mempool.h>
 #include <asm/errno.h>
 #endif
 
@@ -667,6 +668,16 @@ static inline void ptr_ring_cleanup(struct ptr_ring *r, void (*destroy)(void *))
 	if (destroy)
 		while ((ptr = ptr_ring_consume(r)))
 			destroy(ptr);
+	kvfree(r->queue);
+}
+
+static inline void ptr_ring_cleanup_mempool(struct ptr_ring *r, mempool_t *pool)
+{
+	void *ptr;
+
+	if (pool)
+		while ((ptr = ptr_ring_consume(r)))
+			mempool_free(ptr,pool);
 	kvfree(r->queue);
 }
 

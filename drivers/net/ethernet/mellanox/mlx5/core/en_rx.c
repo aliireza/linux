@@ -285,7 +285,10 @@ void mlx5e_page_release_dynamic(struct mlx5e_rq *rq,
 	} else {
 		mlx5e_page_dma_unmap(rq, dma_info);
 		page_pool_release_page(rq->page_pool, dma_info->page);
-		put_page(dma_info->page);
+		if(rq->page_pool->p.mempool && !rq->page_pool->p.order)
+			mempool_free(dma_info->page,rq->page_pool->p.mempool);
+		else
+			put_page(dma_info->page);
 	}
 }
 

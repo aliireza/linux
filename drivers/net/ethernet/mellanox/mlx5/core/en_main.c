@@ -37,6 +37,7 @@
 #include <net/geneve.h>
 #include <linux/bpf.h>
 #include <linux/if_bridge.h>
+#include <linux/mempool.h>
 #include <net/page_pool.h>
 #include <net/xdp_sock.h>
 #include "eswitch.h"
@@ -551,6 +552,12 @@ static int mlx5e_alloc_rq(struct mlx5e_channel *c,
 		pp_params.nid       = cpu_to_node(c->cpu);
 		pp_params.dev       = c->pdev;
 		pp_params.dma_dir   = rq->buff.map_dir;
+		if(mdev->pdev->dev.page_mempool) {
+			mlx5_core_info(mdev,"mempool available!");
+			pp_params.mempool   = mdev->pdev->dev.page_mempool;
+		} else {
+			pp_params.mempool   = NULL;
+		}
 
 		/* page_pool can be used even when there is no rq->xdp_prog,
 		 * given page_pool does not handle DMA mapping there is no
@@ -5407,6 +5414,7 @@ static void mlx5e_detach(struct mlx5_core_dev *mdev, void *vpriv)
 static void *mlx5e_add(struct mlx5_core_dev *mdev)
 {
 	struct net_device *netdev;
+	mempool_t *buffer_mempool;
 	void *priv;
 	int err;
 	int nch;
@@ -5422,6 +5430,14 @@ static void *mlx5e_add(struct mlx5_core_dev *mdev)
 		return mdev;
 	}
 #endif
+
+	buffer_mempool = mempool_create_huge_page_pool(65536,0);
+	if(buffer_mempool){
+		mdev->pdev->dev.page_mempool = buffer_mempool;
+		mlx5_core_info(mdev,"mempool allocated!");
+	}else{
+		mlx5_core_err(mdev,"mempool not allocated!");
+	}
 
 	nch = mlx5e_get_max_num_channels(mdev);
 	netdev = mlx5e_create_netdev(mdev, &mlx5e_nic_profile, nch, NULL);
@@ -5470,6 +5486,7 @@ static void mlx5e_remove(struct mlx5_core_dev *mdev, void *vpriv)
 #ifdef CONFIG_MLX5_CORE_EN_DCB
 	mlx5e_dcbnl_delete_app(priv);
 #endif
+	mempool_destroy(mdev->pdev->dev.page_mempool);
 	unregister_netdev(priv->netdev);
 	mlx5e_detach(mdev, vpriv);
 	mlx5e_destroy_netdev(priv);

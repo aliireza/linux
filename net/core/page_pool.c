@@ -135,7 +135,12 @@ static struct page *__page_pool_alloc_pages_slow(struct page_pool *pool,
 	 */
 
 	/* Cache was empty, do real allocation */
-	page = alloc_pages_node(pool->p.nid, gfp, pool->p.order);
+
+	/* Use mempool */
+	if(likely(pool->p.mempool && !pool->p.order))
+		page = mempool_alloc(pool->p.mempool,gfp);
+	else
+		page = alloc_pages_node(pool->p.nid, gfp, pool->p.order);
 	if (!page)
 		return NULL;
 
@@ -247,7 +252,10 @@ static void __page_pool_return_page(struct page_pool *pool, struct page *page)
 {
 	__page_pool_clean_page(pool, page);
 
-	put_page(page);
+	if(pool->p.mempool && !pool->p.order)
+		mempool_free(page,pool->p.mempool);
+	else
+		put_page(page);
 	/* An optimization would be to call __free_pages(page, pool->p.order)
 	 * knowing page is not part of page-cache (thus avoiding a
 	 * __page_cache_release() call).
@@ -319,7 +327,11 @@ void __page_pool_put_page(struct page_pool *pool,
 	 * will be invoking put_page.
 	 */
 	__page_pool_clean_page(pool, page);
-	put_page(page);
+	if(pool->p.mempool && !pool->p.order)
+		mempool_free(page,pool->p.mempool);
+	else
+		put_page(page);
+ 
 }
 EXPORT_SYMBOL(__page_pool_put_page);
 
@@ -364,7 +376,11 @@ void __page_pool_free(struct page_pool *pool)
 	if (!__page_pool_safe_to_destroy(pool))
 		__warn_in_flight(pool);
 
-	ptr_ring_cleanup(&pool->ring, NULL);
+	//TODO: add a function to clean the ring
+	if(pool->p.mempool && !pool->p.order)
+		ptr_ring_cleanup_mempool(&pool->ring,pool->p.mempool);
+	else
+		ptr_ring_cleanup(&pool->ring, NULL);
 
 	if (pool->p.flags & PP_FLAG_DMA_MAP)
 		put_device(pool->p.dev);
