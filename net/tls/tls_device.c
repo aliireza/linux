@@ -301,7 +301,7 @@ static int tls_device_record_close(struct sock *sk,
 	 * increases frag count)
 	 * if we can't allocate memory now, steal some back from data
 	 */
-	if (likely(skb_page_frag_refill(prot->tag_size, pfrag,
+	if (likely(skb_page_frag_refill(NULL,prot->tag_size, pfrag,
 					sk->sk_allocation))) {
 		ret = 0;
 		tls_append_frag(record, pfrag, prot->tag_size);
@@ -351,7 +351,7 @@ static int tls_do_allocation(struct sock *sk,
 	int ret;
 
 	if (!offload_ctx->open_record) {
-		if (unlikely(!skb_page_frag_refill(prepend_size, pfrag,
+		if (unlikely(!skb_page_frag_refill(NULL,prepend_size, pfrag,
 						   sk->sk_allocation))) {
 			sk->sk_prot->enter_memory_pressure(sk);
 			sk_stream_moderate_sndbuf(sk);

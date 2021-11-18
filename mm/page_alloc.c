@@ -1050,6 +1050,8 @@ static void free_pages_check_bad(struct page *page)
 		bad_reason = "PAGE_FLAGS_CHECK_AT_FREE flag(s) set";
 		bad_flags = PAGE_FLAGS_CHECK_AT_FREE;
 	}
+	if (unlikely(is_dma_cache_page(page)))
+		bad_reason = "Freeing DMA Pages";
 #ifdef CONFIG_MEMCG
 	if (unlikely(page->mem_cgroup))
 		bad_reason = "page still charged to cgroup";
@@ -1104,6 +1106,10 @@ static int free_tail_pages_check(struct page *head_page, struct page *page)
 	}
 	if (unlikely(!PageTail(page))) {
 		bad_page(page, "PageTail not set", 0);
+		goto out;
+	}
+	if (unlikely(is_dma_cache_page(page))) {
+		bad_page(page, "Freeing DMA Pages", 0);
 		goto out;
 	}
 	if (unlikely(compound_head(page) != head_page)) {
@@ -1354,6 +1360,7 @@ static void __meminit __init_single_page(struct page *page, unsigned long pfn,
 	page_cpupid_reset_last(page);
 	page_kasan_tag_reset(page);
 
+	page_dma_cache_reset(page);
 	INIT_LIST_HEAD(&page->lru);
 #ifdef WANT_PAGE_VIRTUAL
 	/* The shift won't overflow because ZONE_NORMAL is below 4G. */
@@ -2072,6 +2079,8 @@ static void check_new_page_bad(struct page *page)
 		bad_reason = "PAGE_FLAGS_CHECK_AT_PREP flag set";
 		bad_flags = PAGE_FLAGS_CHECK_AT_PREP;
 	}
+	if (unlikely(is_dma_cache_page(page)))
+		bad_reason = "Freeing DMA Pages";
 #ifdef CONFIG_MEMCG
 	if (unlikely(page->mem_cgroup))
 		bad_reason = "page still charged to cgroup";
@@ -4812,8 +4821,13 @@ EXPORT_SYMBOL(get_zeroed_page);
 
 static inline void free_the_page(struct page *page, unsigned int order)
 {
-	if (order == 0)		/* Via pcp? */
+	if (order == 0)	{
 		free_unref_page(page);
+		return;
+	}
+	
+	if (is_dma_cache_page(page))
+		dma_cache_free(page->device, page);
 	else
 		__free_pages_ok(page, order);
 }
@@ -4937,8 +4951,12 @@ void page_frag_free(void *addr)
 {
 	struct page *page = virt_to_head_page(addr);
 
-	if (unlikely(put_page_testzero(page)))
-		free_the_page(page, compound_order(page));
+	if (unlikely(put_page_testzero(page))) {
+		if (is_dma_cache_page(page))
+			dma_cache_free(page->device, page);
+		else
+			free_the_page(page, compound_order(page));
+	}
 }
 EXPORT_SYMBOL(page_frag_free);
 

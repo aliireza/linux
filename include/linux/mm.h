@@ -28,6 +28,9 @@
 #include <linux/overflow.h>
 #include <linux/sizes.h>
 
+#define DMA_CACHE_POISON	((void *)0x0D1E7C0C0BADB105)
+#define is_dma_cache_page(page) ((page)->device != DMA_CACHE_POISON)
+
 struct mempolicy;
 struct anon_vma;
 struct anon_vma_chain;
@@ -37,6 +40,14 @@ struct writeback_control;
 struct bdi_writeback;
 
 void init_mm_internals(void);
+
+#define assert_local(expr) 	do { \
+				if (unlikely(!(expr))) { \
+					trace_printk("Assertion failed! %s, %s, %s, line %d\n", \
+						   #expr, __FILE__, __func__, __LINE__); \
+					panic("ASSERT FAILED: %s (%s)", __FUNCTION__, #expr); \
+				} \
+			} while (0)
 
 #ifndef CONFIG_NEED_MULTIPLE_NODES	/* Don't use mapnrs, do it properly */
 extern unsigned long max_mapnr;
@@ -702,6 +713,12 @@ static inline int compound_mapcount(struct page *page)
 	return atomic_read(compound_mapcount_ptr(page)) + 1;
 }
 
+static inline void page_dma_cache_reset(struct page *page)
+{
+	page->iova = 0;
+	page->device = DMA_CACHE_POISON;
+}
+
 /*
  * The atomic page->_mapcount, starts from -1: so that transitions
  * both from it and to it can be tracked, using atomic_inc_and_test
@@ -1029,6 +1046,8 @@ static inline __must_check bool try_get_page(struct page *page)
 	page = compound_head(page);
 	if (WARN_ON_ONCE(page_ref_count(page) <= 0))
 		return false;
+	VM_BUG_ON_PAGE(page_ref_count(page) <= 0, page);
+
 	page_ref_inc(page);
 	return true;
 }
