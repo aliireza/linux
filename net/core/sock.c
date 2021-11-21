@@ -2087,6 +2087,7 @@ EXPORT_SYMBOL(sock_i_ino);
 /*
  * Allocate a skb from the socket's send buffer.
  */
+/* TODO: need to change */
 struct sk_buff *sock_wmalloc(struct sock *sk, unsigned long size, int force,
 			     gfp_t priority)
 {
@@ -2357,6 +2358,7 @@ DEFINE_STATIC_KEY_FALSE(net_high_order_alloc_disable_key);
  * no guarantee that allocations succeed. Therefore, @sz MUST be
  * less or equal than PAGE_SIZE.
  */
+/* TODO: need to change */
 bool skb_page_frag_refill(unsigned int sz, struct page_frag *pfrag, gfp_t gfp)
 {
 	if (pfrag->page) {
@@ -2373,7 +2375,7 @@ bool skb_page_frag_refill(unsigned int sz, struct page_frag *pfrag, gfp_t gfp)
 	if (SKB_FRAG_PAGE_ORDER &&
 	    !static_branch_unlikely(&net_high_order_alloc_disable_key)) {
 		/* Avoid direct reclaim but allow kswapd to wake */
-		pfrag->page = alloc_pages((gfp & ~__GFP_DIRECT_RECLAIM) |
+		pfrag->page = dma_wrapper_alloc_pages((gfp & ~__GFP_DIRECT_RECLAIM) |
 					  __GFP_COMP | __GFP_NOWARN |
 					  __GFP_NORETRY,
 					  SKB_FRAG_PAGE_ORDER);

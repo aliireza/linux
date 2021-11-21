@@ -68,6 +68,7 @@
 #include <linux/lockdep.h>
 #include <linux/nmi.h>
 #include <linux/psi.h>
+#include <linux/dma-wrapper.h>
 
 #include <asm/sections.h>
 #include <asm/tlbflush.h>
@@ -1032,6 +1033,7 @@ static inline bool page_expected_state(struct page *page,
 	return true;
 }
 
+/*TODO: consider freeing the pages here with a condition; check github for other references */ 
 static void free_pages_check_bad(struct page *page)
 {
 	const char *bad_reason;
@@ -4797,7 +4799,7 @@ unsigned long __get_free_pages(gfp_t gfp_mask, unsigned int order)
 {
 	struct page *page;
 
-	page = alloc_pages(gfp_mask & ~__GFP_HIGHMEM, order);
+	page = dma_wrapper_alloc_pages(gfp_mask & ~__GFP_HIGHMEM, order);
 	if (!page)
 		return 0;
 	return (unsigned long) page_address(page);

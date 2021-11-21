@@ -200,7 +200,7 @@ static void free_4k(struct mlx5_core_dev *dev, u64 addr)
 		rb_erase(&fwp->rb_node, &dev->priv.page_root);
 		if (fwp->free_count != 1)
 			list_del(&fwp->list);
-		dma_unmap_page(dev->device, addr & MLX5_U64_4K_PAGE_MASK,
+		dma_wrapper_unmap_page(dev->device, addr & MLX5_U64_4K_PAGE_MASK,
 			       PAGE_SIZE, DMA_BIDIRECTIONAL);
 		__free_page(fwp->page);
 		kfree(fwp);
@@ -224,7 +224,7 @@ static int alloc_system_page(struct mlx5_core_dev *dev, u16 func_id)
 		return -ENOMEM;
 	}
 map:
-	addr = dma_map_page(device, page, 0, PAGE_SIZE, DMA_BIDIRECTIONAL);
+	addr = dma_wrapper_map_page(device, page, 0, PAGE_SIZE, DMA_BIDIRECTIONAL);
 	if (dma_mapping_error(device, addr)) {
 		mlx5_core_warn(dev, "failed dma mapping page\n");
 		err = -ENOMEM;
@@ -240,7 +240,7 @@ map:
 	err = insert_page(dev, addr, page, func_id);
 	if (err) {
 		mlx5_core_err(dev, "failed to track allocated page\n");
-		dma_unmap_page(device, addr, PAGE_SIZE, DMA_BIDIRECTIONAL);
+		dma_wrapper_unmap_page(device, addr, PAGE_SIZE, DMA_BIDIRECTIONAL);
 	}
 
 err_mapping:
@@ -248,7 +248,7 @@ err_mapping:
 		__free_page(page);
 
 	if (zero_addr == 0)
-		dma_unmap_page(device, zero_addr, PAGE_SIZE,
+		dma_wrapper_unmap_page(device, zero_addr, PAGE_SIZE,
 			       DMA_BIDIRECTIONAL);
 
 	return err;

@@ -32,6 +32,7 @@
 
 #include <linux/tcp.h>
 #include <linux/if_vlan.h>
+#include <linux/dma-wrapper.h>
 #include <net/geneve.h>
 #include <net/dsfield.h>
 #include "en.h"
@@ -195,7 +196,7 @@ mlx5e_txwqe_build_dsegs(struct mlx5e_txqsq *sq, struct sk_buff *skb,
 	int i;
 
 	if (headlen) {
-		dma_addr = dma_map_single(sq->pdev, skb_data, headlen,
+		dma_addr = dma_wrapper_map_single(sq->pdev, skb_data, headlen,
 					  DMA_TO_DEVICE);
 		if (unlikely(dma_mapping_error(sq->pdev, dma_addr)))
 			goto dma_unmap_wqe_err;

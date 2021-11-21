@@ -178,6 +178,8 @@ out:
  *	Buffers may only be allocated from interrupts using a @gfp_mask of
  *	%GFP_ATOMIC.
  */
+
+/* TODO: change definition to use the wrapper */
 struct sk_buff *__alloc_skb(unsigned int size, gfp_t gfp_mask,
 			    int flags, int node)
 {
@@ -206,6 +208,7 @@ struct sk_buff *__alloc_skb(unsigned int size, gfp_t gfp_mask,
 	 */
 	size = SKB_DATA_ALIGN(size);
 	size += SKB_DATA_ALIGN(sizeof(struct skb_shared_info));
+	/* TODO: the next few lines should change with the wrapper */
 	data = kmalloc_reserve(size, gfp_mask, node, &pfmemalloc);
 	if (!data)
 		goto nodata;
@@ -372,7 +375,7 @@ static void *__napi_alloc_frag(unsigned int fragsz, gfp_t gfp_mask)
 {
 	struct napi_alloc_cache *nc = this_cpu_ptr(&napi_alloc_cache);
 
-	return page_frag_alloc(&nc->page, fragsz, gfp_mask);
+	return dma_wrapper_page_frag_alloc(&nc->page, fragsz, gfp_mask);
 }
 
 void *napi_alloc_frag(unsigned int fragsz)
@@ -421,6 +424,8 @@ EXPORT_SYMBOL(netdev_alloc_frag);
  *
  *	%NULL is returned if there is no free memory.
  */
+
+/* TODO: need to change */
 struct sk_buff *__netdev_alloc_skb(struct net_device *dev, unsigned int len,
 				   gfp_t gfp_mask)
 {
@@ -433,7 +438,7 @@ struct sk_buff *__netdev_alloc_skb(struct net_device *dev, unsigned int len,
 
 	if ((len > SKB_WITH_OVERHEAD(PAGE_SIZE)) ||
 	    (gfp_mask & (__GFP_DIRECT_RECLAIM | GFP_DMA))) {
-		skb = __alloc_skb(len, gfp_mask, SKB_ALLOC_RX, NUMA_NO_NODE);
+		skb = dma_wrapper_alloc_skb(len, gfp_mask, SKB_ALLOC_RX, NUMA_NO_NODE);
 		if (!skb)
 			goto skb_fail;
 		goto skb_success;
@@ -447,12 +452,12 @@ struct sk_buff *__netdev_alloc_skb(struct net_device *dev, unsigned int len,
 
 	if (in_irq() || irqs_disabled()) {
 		nc = this_cpu_ptr(&netdev_alloc_cache);
-		data = page_frag_alloc(nc, len, gfp_mask);
+		data = dma_wrapper_page_frag_alloc(nc, len, gfp_mask);
 		pfmemalloc = nc->pfmemalloc;
 	} else {
 		local_bh_disable();
 		nc = this_cpu_ptr(&napi_alloc_cache.page);
-		data = page_frag_alloc(nc, len, gfp_mask);
+		data = dma_wrapper_page_frag_alloc(nc, len, gfp_mask);
 		pfmemalloc = nc->pfmemalloc;
 		local_bh_enable();
 	}
@@ -493,6 +498,8 @@ EXPORT_SYMBOL(__netdev_alloc_skb);
  *
  *	%NULL is returned if there is no free memory.
  */
+
+/* TODO: need to change */
 struct sk_buff *__napi_alloc_skb(struct napi_struct *napi, unsigned int len,
 				 gfp_t gfp_mask)
 {
@@ -504,7 +511,7 @@ struct sk_buff *__napi_alloc_skb(struct napi_struct *napi, unsigned int len,
 
 	if ((len > SKB_WITH_OVERHEAD(PAGE_SIZE)) ||
 	    (gfp_mask & (__GFP_DIRECT_RECLAIM | GFP_DMA))) {
-		skb = __alloc_skb(len, gfp_mask, SKB_ALLOC_RX, NUMA_NO_NODE);
+		skb = dma_wrapper_alloc_skb(len, gfp_mask, SKB_ALLOC_RX, NUMA_NO_NODE);
 		if (!skb)
 			goto skb_fail;
 		goto skb_success;
@@ -516,7 +523,7 @@ struct sk_buff *__napi_alloc_skb(struct napi_struct *napi, unsigned int len,
 	if (sk_memalloc_socks())
 		gfp_mask |= __GFP_MEMALLOC;
 
-	data = page_frag_alloc(&nc->page, len, gfp_mask);
+	data = dma_wrapper_page_frag_alloc(&nc->page, len, gfp_mask);
 	if (unlikely(!data))
 		return NULL;
 
@@ -1510,7 +1517,7 @@ struct sk_buff *skb_copy(const struct sk_buff *skb, gfp_t gfp_mask)
 {
 	int headerlen = skb_headroom(skb);
 	unsigned int size = skb_end_offset(skb) + skb->data_len;
-	struct sk_buff *n = __alloc_skb(size, gfp_mask,
+	struct sk_buff *n = dma_wrapper_alloc_skb(size, gfp_mask,
 					skb_alloc_rx_flag(skb), NUMA_NO_NODE);
 
 	if (!n)
@@ -1550,7 +1557,7 @@ struct sk_buff *__pskb_copy_fclone(struct sk_buff *skb, int headroom,
 {
 	unsigned int size = skb_headlen(skb) + headroom;
 	int flags = skb_alloc_rx_flag(skb) | (fclone ? SKB_ALLOC_FCLONE : 0);
-	struct sk_buff *n = __alloc_skb(size, gfp_mask, flags, NUMA_NO_NODE);
+	struct sk_buff *n = dma_wrapper_alloc_skb(size, gfp_mask, flags, NUMA_NO_NODE);
 
 	if (!n)
 		goto out;
@@ -1742,7 +1749,7 @@ struct sk_buff *skb_copy_expand(const struct sk_buff *skb,
 	/*
 	 *	Allocate the copy buffer
 	 */
-	struct sk_buff *n = __alloc_skb(newheadroom + skb->len + newtailroom,
+	struct sk_buff *n = dma_wrapper_alloc_skb(newheadroom + skb->len + newtailroom,
 					gfp_mask, skb_alloc_rx_flag(skb),
 					NUMA_NO_NODE);
 	int oldheadroom = skb_headroom(skb);
@@ -3806,7 +3813,7 @@ normal:
 			skb_release_head_state(nskb);
 			__skb_push(nskb, doffset);
 		} else {
-			nskb = __alloc_skb(hsize + doffset + headroom,
+			nskb = dma_wrapper_alloc_skb(hsize + doffset + headroom,
 					   GFP_ATOMIC, skb_alloc_rx_flag(head_skb),
 					   NUMA_NO_NODE);
 
@@ -5639,6 +5646,8 @@ EXPORT_SYMBOL_GPL(skb_mpls_dec_ttl);
  *
  * This can be used to allocate a paged skb, given a maximal order for frags.
  */
+
+/* TODO: need to change */
 struct sk_buff *alloc_skb_with_frags(unsigned long header_len,
 				     unsigned long data_len,
 				     int max_page_order,
@@ -5670,7 +5679,7 @@ struct sk_buff *alloc_skb_with_frags(unsigned long header_len,
 
 		while (order) {
 			if (npages >= 1 << order) {
-				page = alloc_pages((gfp_mask & ~__GFP_DIRECT_RECLAIM) |
+				page = dma_wrapper_alloc_pages((gfp_mask & ~__GFP_DIRECT_RECLAIM) |
 						   __GFP_COMP |
 						   __GFP_NOWARN,
 						   order);

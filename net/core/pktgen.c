@@ -2610,6 +2610,7 @@ static inline __be16 build_tci(unsigned int id, unsigned int cfi,
 	return htons(id | (cfi << 12) | (prio << 13));
 }
 
+/* TODO: replace alloc_pages with a new wrapper */
 static void pktgen_finalize_skb(struct pktgen_dev *pkt_dev, struct sk_buff *skb,
 				int datalen)
 {
@@ -2689,6 +2690,7 @@ static void pktgen_finalize_skb(struct pktgen_dev *pkt_dev, struct sk_buff *skb,
 	}
 }
 
+/* TODO: replace alloc_skb with the new declaration */
 static struct sk_buff *pktgen_alloc_skb(struct net_device *dev,
 					struct pktgen_dev *pkt_dev)
 {

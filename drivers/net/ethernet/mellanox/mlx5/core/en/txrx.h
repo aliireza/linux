@@ -5,6 +5,7 @@
 #define __MLX5_EN_TXRX_H___
 
 #include "en.h"
+#include <linux/dma-wrapper.h>
 
 #define MLX5E_SQ_NOPS_ROOM (MLX5_SEND_WQE_MAX_WQEBBS - 1)
 #define MLX5E_SQ_STOP_ROOM (MLX5_SEND_WQE_MAX_WQEBBS +\
@@ -169,10 +170,10 @@ mlx5e_tx_dma_unmap(struct device *pdev, struct mlx5e_sq_dma *dma)
 {
 	switch (dma->type) {
 	case MLX5E_DMA_MAP_SINGLE:
-		dma_unmap_single(pdev, dma->addr, dma->size, DMA_TO_DEVICE);
+		dma_wrapper_unmap_single(pdev, dma->addr, dma->size, DMA_TO_DEVICE);
 		break;
 	case MLX5E_DMA_MAP_PAGE:
-		dma_unmap_page(pdev, dma->addr, dma->size, DMA_TO_DEVICE);
+		dma_wrapper_unmap_page(pdev, dma->addr, dma->size, DMA_TO_DEVICE);
 		break;
 	default:
 		WARN_ONCE(true, "mlx5e_tx_dma_unmap unknown DMA type!\n");

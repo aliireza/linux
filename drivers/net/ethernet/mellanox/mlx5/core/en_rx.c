@@ -35,6 +35,7 @@
 #include <linux/ipv6.h>
 #include <linux/tcp.h>
 #include <linux/indirect_call_wrapper.h>
+#include <linux/dma-wrapper.h>
 #include <net/ip6_checksum.h>
 #include <net/page_pool.h>
 #include <net/inet_ecn.h>
@@ -247,7 +248,7 @@ static inline int mlx5e_page_alloc_pool(struct mlx5e_rq *rq,
 	if (unlikely(!dma_info->page))
 		return -ENOMEM;
 
-	dma_info->addr = dma_map_page(rq->pdev, dma_info->page, 0,
+	dma_info->addr = dma_wrapper_map_page(rq->pdev, dma_info->page, 0,
 				      PAGE_SIZE, rq->buff.map_dir);
 	if (unlikely(dma_mapping_error(rq->pdev, dma_info->addr))) {
 		page_pool_recycle_direct(rq->page_pool, dma_info->page);
@@ -269,7 +270,7 @@ static inline int mlx5e_page_alloc(struct mlx5e_rq *rq,
 
 void mlx5e_page_dma_unmap(struct mlx5e_rq *rq, struct mlx5e_dma_info *dma_info)
 {
-	dma_unmap_page(rq->pdev, dma_info->addr, PAGE_SIZE, rq->buff.map_dir);
+	dma_wrapper_unmap_page(rq->pdev, dma_info->addr, PAGE_SIZE, rq->buff.map_dir);
 }
 
 void mlx5e_page_release_dynamic(struct mlx5e_rq *rq,

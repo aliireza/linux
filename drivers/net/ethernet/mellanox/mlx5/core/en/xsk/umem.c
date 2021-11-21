@@ -13,7 +13,7 @@ static int mlx5e_xsk_map_umem(struct mlx5e_priv *priv,
 	u32 i;
 
 	for (i = 0; i < umem->npgs; i++) {
-		dma_addr_t dma = dma_map_page(dev, umem->pgs[i], 0, PAGE_SIZE,
+		dma_addr_t dma = dma_wrapper_map_page(dev, umem->pgs[i], 0, PAGE_SIZE,
 					      DMA_BIDIRECTIONAL);
 
 		if (unlikely(dma_mapping_error(dev, dma)))
@@ -25,7 +25,7 @@ static int mlx5e_xsk_map_umem(struct mlx5e_priv *priv,
 
 err_unmap:
 	while (i--) {
-		dma_unmap_page(dev, umem->pages[i].dma, PAGE_SIZE,
+		dma_wrapper_unmap_page(dev, umem->pages[i].dma, PAGE_SIZE,
 			       DMA_BIDIRECTIONAL);
 		umem->pages[i].dma = 0;
 	}
@@ -40,7 +40,7 @@ static void mlx5e_xsk_unmap_umem(struct mlx5e_priv *priv,
 	u32 i;
 
 	for (i = 0; i < umem->npgs; i++) {
-		dma_unmap_page(dev, umem->pages[i].dma, PAGE_SIZE,
+		dma_wrapper_unmap_page(dev, umem->pages[i].dma, PAGE_SIZE,
 			       DMA_BIDIRECTIONAL);
 		umem->pages[i].dma = 0;
 	}

@@ -36,6 +36,7 @@
 #include <linux/splice.h>
 #include <linux/in6.h>
 #include <linux/if_packet.h>
+#include <linux/dma-wrapper.h>
 #include <net/flow.h>
 #if IS_ENABLED(CONFIG_NF_CONNTRACK)
 #include <linux/netfilter/nf_conntrack_common.h>
@@ -1029,6 +1030,7 @@ void kfree_skb_partial(struct sk_buff *skb, bool head_stolen);
 bool skb_try_coalesce(struct sk_buff *to, struct sk_buff *from,
 		      bool *fragstolen, int *delta_truesize);
 
+/*TODO: change declaration: change wherever _alloc_skb is used */
 struct sk_buff *__alloc_skb(unsigned int size, gfp_t priority, int flags,
 			    int node);
 struct sk_buff *__build_skb(void *data, unsigned int frag_size);
@@ -1046,6 +1048,7 @@ struct sk_buff *build_skb_around(struct sk_buff *skb,
 static inline struct sk_buff *alloc_skb(unsigned int size,
 					gfp_t priority)
 {
+	/*TODO: change declaration*/ 
 	return __alloc_skb(size, priority, 0, NUMA_NO_NODE);
 }
 
