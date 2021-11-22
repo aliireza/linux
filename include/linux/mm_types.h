@@ -25,6 +25,7 @@
 
 struct address_space;
 struct mem_cgroup;
+typedef struct dmapool_s dmapool_t;
 typedef struct mempool_s mempool_t;
 
 /*
@@ -220,6 +221,7 @@ struct page {
 #ifdef LAST_CPUPID_NOT_IN_PAGE_FLAGS
 	int _last_cpupid;
 #endif
+	dmapool_t *dp;
 	mempool_t *mp;
 } _struct_page_alignment;
 

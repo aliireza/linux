@@ -37,7 +37,7 @@
 #include <net/geneve.h>
 #include <linux/bpf.h>
 #include <linux/if_bridge.h>
-#include <linux/mempool.h>
+#include <linux/dma-pool.h>
 #include <net/page_pool.h>
 #include <net/xdp_sock.h>
 #include "eswitch.h"
@@ -547,16 +547,16 @@ static int mlx5e_alloc_rq(struct mlx5e_channel *c,
 	} else {
 		/* Create a page_pool and register it with rxq */
 		pp_params.order     = 0;
-		pp_params.flags     = 0; /* No-internal DMA mapping in page_pool */
+		pp_params.flags     = PP_FLAG_DMA_MAP; /* No-internal DMA mapping in page_pool */
 		pp_params.pool_size = pool_size;
 		pp_params.nid       = cpu_to_node(c->cpu);
 		pp_params.dev       = c->pdev;
 		pp_params.dma_dir   = rq->buff.map_dir;
-		if(mdev->pdev->dev.page_mempool) {
-			mlx5_core_info(mdev,"mempool available!");
-			pp_params.mempool   = mdev->pdev->dev.page_mempool;
+		if(mdev->pdev->dev.page_dmapool) {
+			mlx5_core_info(mdev,"dmapool available!");
+			pp_params.dmapool   = mdev->pdev->dev.page_dmapool;
 		} else {
-			pp_params.mempool   = NULL;
+			pp_params.dmapool   = NULL;
 		}
 
 		/* page_pool can be used even when there is no rq->xdp_prog,
@@ -5414,7 +5414,7 @@ static void mlx5e_detach(struct mlx5_core_dev *mdev, void *vpriv)
 static void *mlx5e_add(struct mlx5_core_dev *mdev)
 {
 	struct net_device *netdev;
-	mempool_t *buffer_mempool;
+	dmapool_t *buffer_dmapool;
 	void *priv;
 	int err;
 	int nch;
@@ -5430,13 +5430,13 @@ static void *mlx5e_add(struct mlx5_core_dev *mdev)
 		return mdev;
 	}
 #endif
-
-	buffer_mempool = mempool_create_huge_page_pool(65536,0);
-	if(buffer_mempool){
-		mdev->pdev->dev.page_mempool = buffer_mempool;
-		mlx5_core_info(mdev,"mempool allocated!");
+	//&mdev->pdev->dev
+	buffer_dmapool = dmapool_create(8388608, 9, GFP_ATOMIC | __GFP_NOWARN, 0, NULL, DMA_FROM_DEVICE);
+	if(buffer_dmapool){
+		mdev->pdev->dev.page_dmapool = buffer_dmapool;
+		mlx5_core_info(mdev,"buffer_dmapool allocated!");
 	}else{
-		mlx5_core_err(mdev,"mempool not allocated!");
+		mlx5_core_err(mdev,"buffer_dmapool not allocated!");
 	}
 
 	nch = mlx5e_get_max_num_channels(mdev);
@@ -5486,7 +5486,7 @@ static void mlx5e_remove(struct mlx5_core_dev *mdev, void *vpriv)
 #ifdef CONFIG_MLX5_CORE_EN_DCB
 	mlx5e_dcbnl_delete_app(priv);
 #endif
-	mempool_destroy(mdev->pdev->dev.page_mempool);
+	dmapool_destroy(mdev->pdev->dev.page_dmapool);
 	unregister_netdev(priv->netdev);
 	mlx5e_detach(mdev, vpriv);
 	mlx5e_destroy_netdev(priv);

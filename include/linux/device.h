@@ -26,7 +26,7 @@
 #include <linux/uidgid.h>
 #include <linux/gfp.h>
 #include <linux/overflow.h>
-#include <linux/mempool.h>
+#include <linux/dma-pool.h>
 #include <asm/device.h>
 
 
@@ -1310,7 +1310,7 @@ struct device {
 	struct iommu_fwspec	*iommu_fwspec;
 	struct iommu_param	*iommu_param;
 
-	mempool_t *page_mempool;
+	dmapool_t *page_dmapool;
 
 	bool			offline_disabled:1;
 	bool			offline:1;

@@ -33,7 +33,7 @@
 #include <linux/mm.h> /* Needed by ptr_ring */
 #include <linux/ptr_ring.h>
 #include <linux/dma-direction.h>
-#include <linux/mempool.h>
+#include <linux/dma-pool.h>
 
 #define PP_FLAG_DMA_MAP 1 /* Should page_pool do the DMA map/unmap */
 #define PP_FLAG_ALL	PP_FLAG_DMA_MAP
@@ -66,7 +66,7 @@ struct page_pool_params {
 	int		nid;  /* Numa node id to allocate from pages from */
 	struct device	*dev; /* device, for DMA pre-mapping purposes */
 	enum dma_data_direction dma_dir; /* DMA mapping direction */
-	mempool_t *mempool; /* Mempool to be used instead of alloc_pages*/
+	dmapool_t *dmapool; /* dmapool to be used instead of alloc_pages*/
 };
 
 struct page_pool {

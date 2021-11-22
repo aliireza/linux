@@ -246,9 +246,13 @@ static inline int mlx5e_page_alloc_pool(struct mlx5e_rq *rq,
 	dma_info->page = page_pool_dev_alloc_pages(rq->page_pool);
 	if (unlikely(!dma_info->page))
 		return -ENOMEM;
-
-	dma_info->addr = dma_map_page(rq->pdev, dma_info->page, 0,
-				      PAGE_SIZE, rq->buff.map_dir);
+	if (!(rq->page_pool->p.flags & PP_FLAG_DMA_MAP)){
+		printk(KERN_INFO "dma_map_page\n");
+		dma_info->addr = dma_map_page(rq->pdev, dma_info->page, 0,
+					      PAGE_SIZE, rq->buff.map_dir);
+	}
+	else
+		dma_info->addr = dma_info->page->dma_addr;
 	if (unlikely(dma_mapping_error(rq->pdev, dma_info->addr))) {
 		page_pool_recycle_direct(rq->page_pool, dma_info->page);
 		dma_info->page = NULL;
@@ -276,18 +280,25 @@ void mlx5e_page_release_dynamic(struct mlx5e_rq *rq,
 				struct mlx5e_dma_info *dma_info,
 				bool recycle)
 {
-	printk(KERN_INFO "recycle: %d\n",recycle);
+	// printk(KERN_INFO "recycle: %d\n",recycle);
 	if (likely(recycle)) {
-		if (mlx5e_rx_cache_put(rq, dma_info))
+		if (mlx5e_rx_cache_put(rq, dma_info)){
+			// printk(KERN_INFO "cache put\n");
 			return;
-
-		mlx5e_page_dma_unmap(rq, dma_info);
+		}
+		if (!(rq->page_pool->p.flags & PP_FLAG_DMA_MAP)){
+			printk(KERN_INFO "dma_unmap_page\n");
+			mlx5e_page_dma_unmap(rq, dma_info);
+		}
 		page_pool_recycle_direct(rq->page_pool, dma_info->page);
 	} else {
-		mlx5e_page_dma_unmap(rq, dma_info);
+		if (!(rq->page_pool->p.flags & PP_FLAG_DMA_MAP)){
+			printk(KERN_INFO "dma_unmap_page\n");
+			mlx5e_page_dma_unmap(rq, dma_info);
+		}
 		page_pool_release_page(rq->page_pool, dma_info->page);
-		if(rq->page_pool->p.mempool && !rq->page_pool->p.order)
-			mempool_free(dma_info->page,rq->page_pool->p.mempool);
+		if(rq->page_pool->p.dmapool && !rq->page_pool->p.order)
+			dmapool_free_page(dma_info->page,rq->page_pool->p.dmapool);
 		else
 			put_page(dma_info->page);
 	}

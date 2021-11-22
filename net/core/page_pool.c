@@ -136,9 +136,9 @@ static struct page *__page_pool_alloc_pages_slow(struct page_pool *pool,
 
 	/* Cache was empty, do real allocation */
 
-	/* Use mempool */
-	if(likely(pool->p.mempool && !pool->p.order))
-		page = mempool_alloc(pool->p.mempool,gfp);
+	/* Use dmapool */
+	if(likely(pool->p.dmapool && !pool->p.order))
+		page = dmapool_alloc_page(pool->p.dmapool);
 	else
 		page = alloc_pages_node(pool->p.nid, gfp, pool->p.order);
 	if (!page)
@@ -377,8 +377,8 @@ void __page_pool_free(struct page_pool *pool)
 		__warn_in_flight(pool);
 
 	//TODO: add a function to clean the ring
-	if(pool->p.mempool && !pool->p.order)
-		ptr_ring_cleanup_mempool(&pool->ring,pool->p.mempool);
+	if(pool->p.dmapool && !pool->p.order)
+		ptr_ring_cleanup_dmapool(&pool->ring,pool->p.dmapool);
 	else
 		ptr_ring_cleanup(&pool->ring, NULL);
 

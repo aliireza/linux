@@ -462,6 +462,7 @@ EXPORT_SYMBOL(mempool_resize);
 void *mempool_alloc(mempool_t *pool, gfp_t gfp_mask)
 {
 	void *element;
+	struct page* tmp_page;
 	unsigned long flags;
 	wait_queue_entry_t wait;
 	gfp_t gfp_temp;
@@ -474,16 +475,14 @@ void *mempool_alloc(mempool_t *pool, gfp_t gfp_mask)
 	gfp_mask |= __GFP_NOWARN;	/* failures are OK */
 
 	gfp_temp = gfp_mask & ~(__GFP_DIRECT_RECLAIM|__GFP_IO);
-
-	if(pool->split_hugepages){
-		// printk(KERN_INFO"goto use_pool");
-		goto use_pool;
-	}
-		
  
 repeat_alloc:
 	// printk(KERN_INFO "mempool_alloc(): repeat_alloc");
 	element = pool->alloc(gfp_temp, pool->pool_data);
+	if(pool->alloc == mempool_alloc_pages) {
+		tmp_page = (struct page*) element;
+		tmp_page->mp = pool;
+	}
 	if (likely(element != NULL))
 		return element;
 use_pool:
@@ -586,8 +585,8 @@ void mempool_free(void *element, mempool_t *pool)
 	if (unlikely(pool->curr_nr < pool->min_nr)) {
 		spin_lock_irqsave(&pool->lock, flags);
 		if (likely(pool->curr_nr < pool->min_nr)) {
-			printk(KERN_INFO "mempool_free: add_elem\n");
-			printk("mempool_free: %p\n",page_to_phys((struct page*)element));
+			// printk(KERN_INFO "mempool_free: add_elem\n");
+			// printk("mempool_free: %p\n",page_to_phys((struct page*)element));
 			add_element(pool, element);
 			spin_unlock_irqrestore(&pool->lock, flags);
 			wake_up(&pool->wait);
@@ -595,6 +594,7 @@ void mempool_free(void *element, mempool_t *pool)
 		}
 		spin_unlock_irqrestore(&pool->lock, flags);
 	}
+	// printk(KERN_INFO "mempool_free: _free_pages\n");
 	pool->free(element, pool->pool_data);
 }
 EXPORT_SYMBOL(mempool_free);
