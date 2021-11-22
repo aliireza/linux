@@ -25,6 +25,7 @@
 
 struct address_space;
 struct mem_cgroup;
+typedef struct mempool_s mempool_t;
 
 /*
  * Each physical page in the system has a struct page associated with
@@ -219,6 +220,7 @@ struct page {
 #ifdef LAST_CPUPID_NOT_IN_PAGE_FLAGS
 	int _last_cpupid;
 #endif
+	mempool_t *mp;
 } _struct_page_alignment;
 
 static inline atomic_t *compound_mapcount_ptr(struct page *page)

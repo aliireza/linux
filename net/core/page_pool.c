@@ -252,9 +252,9 @@ static void __page_pool_return_page(struct page_pool *pool, struct page *page)
 {
 	__page_pool_clean_page(pool, page);
 
-	if(pool->p.mempool && !pool->p.order)
-		mempool_free(page,pool->p.mempool);
-	else
+	// if(pool->p.mempool && !pool->p.order)
+	// 	mempool_free(page,pool->p.mempool);
+	// else
 		put_page(page);
 	/* An optimization would be to call __free_pages(page, pool->p.order)
 	 * knowing page is not part of page-cache (thus avoiding a
@@ -327,10 +327,10 @@ void __page_pool_put_page(struct page_pool *pool,
 	 * will be invoking put_page.
 	 */
 	__page_pool_clean_page(pool, page);
-	if(pool->p.mempool && !pool->p.order)
-		mempool_free(page,pool->p.mempool);
-	else
-		put_page(page);
+	// if(pool->p.mempool && !pool->p.order)
+	// 	mempool_free(page,pool->p.mempool);
+	// else
+	put_page(page);
  
 }
 EXPORT_SYMBOL(__page_pool_put_page);

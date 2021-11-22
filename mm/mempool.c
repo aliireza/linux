@@ -259,12 +259,15 @@ int mempool_init_node_split(mempool_t *pool, int min_nr, mempool_alloc_t *alloc_
 		}
 		// printk(KERN_INFO "mempool_init_node: while loop: %d", pool->curr_nr);
 		// printk(KERN_INFO "split_hugepages in while");
-		trace_printk("mempool_init: huge_page %d: %p\n",pool->curr_huge_nr,page_to_phys(pages));
+		printk("mempool_init: huge_page %d: %p\n",pool->curr_huge_nr,page_to_phys(pages));
 		
 		pool->hugepages[pool->curr_huge_nr++]=pages;
 		// printk(KERN_INFO"hugepage added");
 		for(i=0;i< (1<<9);i++) {
-			// printk(KERN_INFO "mempool_init_node: for loop: %d", i);
+			printk(KERN_INFO "mempool_init_node: for loop: %d compound: %d\n", i,PageCompound(pages+i));
+			(pages+i)->mp=pool;
+			if(!page_ref_count(pages+i))
+				page_ref_inc(pages+i);
 			add_element(pool,pages+i);
 		}	
 	}
@@ -583,8 +586,8 @@ void mempool_free(void *element, mempool_t *pool)
 	if (unlikely(pool->curr_nr < pool->min_nr)) {
 		spin_lock_irqsave(&pool->lock, flags);
 		if (likely(pool->curr_nr < pool->min_nr)) {
-			// printk(KERN_INFO "mempool_free: add_elem");
-			trace_printk("mempool_free: %p\n",page_to_phys((struct page*)element));
+			printk(KERN_INFO "mempool_free: add_elem\n");
+			printk("mempool_free: %p\n",page_to_phys((struct page*)element));
 			add_element(pool, element);
 			spin_unlock_irqrestore(&pool->lock, flags);
 			wake_up(&pool->wait);

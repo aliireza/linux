@@ -27,6 +27,7 @@
 #include <linux/memremap.h>
 #include <linux/overflow.h>
 #include <linux/sizes.h>
+#include <linux/mempool.h>
 
 struct mempolicy;
 struct anon_vma;
@@ -1045,6 +1046,11 @@ static inline void put_page(struct page *page)
 	 */
 	if (put_devmap_managed_page(page))
 		return;
+
+	if(page->mp){
+		trace_printk("[mempool_free]: %s:%d\n",__FUNCTION__,__LINE__);
+		mempool_free(page,page->mp);
+	}
 
 	if (put_page_testzero(page))
 		__put_page(page);

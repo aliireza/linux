@@ -276,6 +276,7 @@ void mlx5e_page_release_dynamic(struct mlx5e_rq *rq,
 				struct mlx5e_dma_info *dma_info,
 				bool recycle)
 {
+	printk(KERN_INFO "recycle: %d\n",recycle);
 	if (likely(recycle)) {
 		if (mlx5e_rx_cache_put(rq, dma_info))
 			return;
