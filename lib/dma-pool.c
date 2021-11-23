@@ -9,9 +9,9 @@
  * 
  */
 static inline int dmapool_refill(dmapool_t *pool) {
-        dma_addr_t dma;
 	struct page *pages;
 	int i;
+	dma_addr_t dma = 0;
 
 
 	pages = alloc_pages_node(pool->nid, pool->gfp_mask,  pool->hugepage_order);
@@ -20,7 +20,7 @@ static inline int dmapool_refill(dmapool_t *pool) {
 	}
 	
 	pool->hugepage_array[pool->curr_hugepage_nr++]=pages;
-	printk(KERN_INFO"hugepage added");
+	printk(KERN_INFO"%d hugepage added\n", pool->curr_hugepage_nr);
         /* dma_map hugepages */
 	if(pool->dev) {
 		dma = dma_map_page_attrs(pool->dev, pages, 0,
@@ -42,7 +42,9 @@ static inline int dmapool_refill(dmapool_t *pool) {
 		pool->page_array[pool->curr_page_nr++]=(pages+i);
 	}
 
-        return 0;
+	printk(KERN_INFO"%d hugepage added: pages %lld\n", pool->curr_hugepage_nr, pool->curr_page_nr);
+
+        return 1;
 }
 
 /*
@@ -72,7 +74,7 @@ dmapool_t *dmapool_create(u64 page_nr, int hugepage_order, gfp_t gfp_mask, int n
 	}
 
         pool->hugepage_nr = CEIL(page_nr,(1<<hugepage_order));
-        pool->page_nr = (1<<hugepage_order);
+        pool->page_nr = (1<<hugepage_order)*pool->hugepage_nr;
         pool->hugepage_order = hugepage_order;
         pool->curr_page_nr = 0;
         pool->curr_hugepage_nr = 0;
@@ -100,14 +102,15 @@ dmapool_t *dmapool_create(u64 page_nr, int hugepage_order, gfp_t gfp_mask, int n
 
         /* Allocate Hugepages */
 
+	printk(KERN_INFO "pool->hugepage_nr %d pool->page_nr %lld\n", pool->hugepage_nr,pool->page_nr);
+
 	while (pool->curr_hugepage_nr < pool->hugepage_nr) {
-                int err = dmapool_refill(pool);
-                if(err) {
-                        return NULL;
+                if(!dmapool_refill(pool)) {
                         printk(KERN_ERR "dmapool_refill failed!\n");
-                }
-                       
+			return NULL;
+                }      
 	}
+	printk(KERN_INFO "while loop ended!%lld %d\n",pool->curr_page_nr, (1<<pool->hugepage_order)*pool->curr_hugepage_nr);
 
         BUG_ON(pool->curr_page_nr != (1<<pool->hugepage_order)*pool->curr_hugepage_nr);
 
@@ -123,10 +126,28 @@ EXPORT_SYMBOL(dmapool_create);
  * Note that the user should ensure that all 4-KB pages are returned to the pool.
  */
 void dmapool_destroy(dmapool_t *pool) {
+	unsigned long flags;
+	struct page* tmp;
+	
+	spin_lock_irqsave(&pool->lock, flags);
+	if(pool->curr_page_nr == pool->page_nr) {
+		while(pool->curr_hugepage_nr) {
+			if(pool->dev)
+				printk(KERN_INFO "TODO: unmap\n");
+			tmp = pool->hugepage_array[--pool->curr_hugepage_nr];
+			tmp->dp = NULL;
+			put_page(tmp);
+			// __free_pages(pool->hugepage_array[--pool->curr_hugepage_nr],pool->hugepage_order);
+		}
+	} else {
+		printk(KERN_ERR "User should return all pages back to the dmapool!\n");
+	}
+	spin_unlock_irqrestore(&pool->lock, flags);
+
 	if(pool->dev)
 		put_device(pool->dev);
 
-        printk(KERN_WARNING "dmapool_destroy: to be implemented!");
+        printk(KERN_WARNING "dmapool_destroy: to be completed!");
 }
 EXPORT_SYMBOL(dmapool_destroy);
 
@@ -179,6 +200,7 @@ void dmapool_free_page(struct page *page, dmapool_t *pool) {
 	if (likely(pool->curr_page_nr < pool->page_nr)) {
 		spin_lock_irqsave(&pool->lock, flags);
 		if (likely(pool->curr_page_nr < pool->page_nr)) {
+			printk(KERN_INFO "dmapool_free_page!\n");
 		        pool->page_array[pool->curr_page_nr++]=page;
 			spin_unlock_irqrestore(&pool->lock, flags);
 			return;

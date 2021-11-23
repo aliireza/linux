@@ -5431,7 +5431,8 @@ static void *mlx5e_add(struct mlx5_core_dev *mdev)
 	}
 #endif
 	//&mdev->pdev->dev
-	buffer_dmapool = dmapool_create(8388608, 9, GFP_ATOMIC | __GFP_NOWARN, 0, NULL, DMA_FROM_DEVICE);
+	buffer_dmapool = dmapool_create(262144, 9, GFP_ATOMIC | __GFP_NOWARN, 0, NULL, DMA_FROM_DEVICE);
+	// buffer_dmapool = NULL;
 	if(buffer_dmapool){
 		mdev->pdev->dev.page_dmapool = buffer_dmapool;
 		mlx5_core_info(mdev,"buffer_dmapool allocated!");
