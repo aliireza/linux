@@ -1310,7 +1310,7 @@ struct device {
 	struct iommu_fwspec	*iommu_fwspec;
 	struct iommu_param	*iommu_param;
 
-	dmapool_t *page_dmapool;
+	dmapool_t *page_dmapools[64];
 
 	bool			offline_disabled:1;
 	bool			offline:1;

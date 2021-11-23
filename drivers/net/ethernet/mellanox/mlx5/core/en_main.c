@@ -547,14 +547,14 @@ static int mlx5e_alloc_rq(struct mlx5e_channel *c,
 	} else {
 		/* Create a page_pool and register it with rxq */
 		pp_params.order     = 0;
-		pp_params.flags     = PP_FLAG_DMA_MAP; /* No-internal DMA mapping in page_pool */
+		pp_params.flags     = 0; /* No-internal DMA mapping in page_pool */
 		pp_params.pool_size = pool_size;
 		pp_params.nid       = cpu_to_node(c->cpu);
 		pp_params.dev       = c->pdev;
 		pp_params.dma_dir   = rq->buff.map_dir;
-		if(mdev->pdev->dev.page_dmapool) {
+		if(mdev->pdev->dev.page_dmapools[rq->ix]) {
 			mlx5_core_info(mdev,"dmapool available!");
-			pp_params.dmapool   = mdev->pdev->dev.page_dmapool;
+			pp_params.dmapool   = mdev->pdev->dev.page_dmapools[rq->ix];
 		} else {
 			pp_params.dmapool   = NULL;
 		}
@@ -5418,6 +5418,7 @@ static void *mlx5e_add(struct mlx5_core_dev *mdev)
 	void *priv;
 	int err;
 	int nch;
+	int i;
 
 	err = mlx5e_check_required_hca_cap(mdev);
 	if (err)
@@ -5431,14 +5432,17 @@ static void *mlx5e_add(struct mlx5_core_dev *mdev)
 	}
 #endif
 	//&mdev->pdev->dev
-	buffer_dmapool = dmapool_create(262144, 9, GFP_ATOMIC | __GFP_NOWARN, 0, NULL, DMA_FROM_DEVICE);
-	// buffer_dmapool = NULL;
-	if(buffer_dmapool){
-		mdev->pdev->dev.page_dmapool = buffer_dmapool;
-		mlx5_core_info(mdev,"buffer_dmapool allocated!");
-	}else{
-		mlx5_core_err(mdev,"buffer_dmapool not allocated!");
+	for(i=0;i<64;i++){
+		buffer_dmapool = dmapool_create(65536, 9, GFP_ATOMIC | __GFP_NOWARN, 0, NULL, DMA_FROM_DEVICE);
+		if(buffer_dmapool){
+			mdev->pdev->dev.page_dmapools[i] = buffer_dmapool;
+			mlx5_core_info(mdev,"buffer_dmapool allocated!");
+		}else{
+			mlx5_core_err(mdev,"buffer_dmapool not allocated!");
+		}
 	}
+	
+	// buffer_dmapool = NULL;
 
 	nch = mlx5e_get_max_num_channels(mdev);
 	netdev = mlx5e_create_netdev(mdev, &mlx5e_nic_profile, nch, NULL);
@@ -5476,6 +5480,7 @@ err_destroy_netdev:
 static void mlx5e_remove(struct mlx5_core_dev *mdev, void *vpriv)
 {
 	struct mlx5e_priv *priv;
+	int i;
 
 #ifdef CONFIG_MLX5_ESWITCH
 	if (MLX5_ESWITCH_MANAGER(mdev) && vpriv == mdev) {
@@ -5487,7 +5492,8 @@ static void mlx5e_remove(struct mlx5_core_dev *mdev, void *vpriv)
 #ifdef CONFIG_MLX5_CORE_EN_DCB
 	mlx5e_dcbnl_delete_app(priv);
 #endif
-	dmapool_destroy(mdev->pdev->dev.page_dmapool);
+	for(i=0;i<64;i++)
+		dmapool_destroy(mdev->pdev->dev.page_dmapools[i]);
 	unregister_netdev(priv->netdev);
 	mlx5e_detach(mdev, vpriv);
 	mlx5e_destroy_netdev(priv);

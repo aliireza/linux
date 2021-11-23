@@ -247,7 +247,7 @@ static inline int mlx5e_page_alloc_pool(struct mlx5e_rq *rq,
 	if (unlikely(!dma_info->page))
 		return -ENOMEM;
 	if (!(rq->page_pool->p.flags & PP_FLAG_DMA_MAP)){
-		printk(KERN_INFO "dma_map_page\n");
+		// trace_printk("mlx5e: alloc - dma_map_page\n");
 		dma_info->addr = dma_map_page(rq->pdev, dma_info->page, 0,
 					      PAGE_SIZE, rq->buff.map_dir);
 	}
@@ -287,13 +287,13 @@ void mlx5e_page_release_dynamic(struct mlx5e_rq *rq,
 			return;
 		}
 		if (!(rq->page_pool->p.flags & PP_FLAG_DMA_MAP)){
-			printk(KERN_INFO "dma_unmap_page\n");
+			// trace_printk("mlx5e: recycle - dma_unmap_page\n");
 			mlx5e_page_dma_unmap(rq, dma_info);
 		}
 		page_pool_recycle_direct(rq->page_pool, dma_info->page);
 	} else {
 		if (!(rq->page_pool->p.flags & PP_FLAG_DMA_MAP)){
-			printk(KERN_INFO "dma_unmap_page\n");
+			// trace_printk("mlx5e: no recycle - dma_unmap_page\n");
 			mlx5e_page_dma_unmap(rq, dma_info);
 		}
 		page_pool_release_page(rq->page_pool, dma_info->page);

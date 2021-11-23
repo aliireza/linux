@@ -1696,7 +1696,9 @@ static void klist_children_put(struct klist_node *n)
  */
 void device_initialize(struct device *dev)
 {
-	dev->page_dmapool = NULL;
+	int i;
+	for(i=0;i<64;i++)
+		dev->page_dmapools[i] = NULL;
 	dev->kobj.kset = devices_kset;
 	kobject_init(&dev->kobj, &device_ktype);
 	INIT_LIST_HEAD(&dev->dma_pools);

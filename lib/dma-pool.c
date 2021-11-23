@@ -20,7 +20,7 @@ static inline int dmapool_refill(dmapool_t *pool) {
 	}
 	
 	pool->hugepage_array[pool->curr_hugepage_nr++]=pages;
-	printk(KERN_INFO"%d hugepage added\n", pool->curr_hugepage_nr);
+	// printk(KERN_INFO"%d hugepage added\n", pool->curr_hugepage_nr);
         /* dma_map hugepages */
 	if(pool->dev) {
 		dma = dma_map_page_attrs(pool->dev, pages, 0,
@@ -36,13 +36,13 @@ static inline int dmapool_refill(dmapool_t *pool) {
 	for(i=0;i< (1<<pool->hugepage_order);i++) {
 		(pages+i)->dp=pool;
 		if(pool->dev)
-                	(pages+i)->dma_addr = dma + PAGE_SIZE;
+                	(pages+i)->dma_addr = dma + PAGE_SIZE*i;
 		if(!page_ref_count(pages+i))
 			page_ref_inc(pages+i);
 		pool->page_array[pool->curr_page_nr++]=(pages+i);
 	}
 
-	printk(KERN_INFO"%d hugepage added: pages %lld\n", pool->curr_hugepage_nr, pool->curr_page_nr);
+	// printk(KERN_INFO"%d hugepage added: pages %lld\n", pool->curr_hugepage_nr, pool->curr_page_nr);
 
         return 1;
 }
@@ -110,7 +110,7 @@ dmapool_t *dmapool_create(u64 page_nr, int hugepage_order, gfp_t gfp_mask, int n
 			return NULL;
                 }      
 	}
-	printk(KERN_INFO "while loop ended!%lld %d\n",pool->curr_page_nr, (1<<pool->hugepage_order)*pool->curr_hugepage_nr);
+	// printk(KERN_INFO "while loop ended!%lld %d\n",pool->curr_page_nr, (1<<pool->hugepage_order)*pool->curr_hugepage_nr);
 
         BUG_ON(pool->curr_page_nr != (1<<pool->hugepage_order)*pool->curr_hugepage_nr);
 
@@ -167,6 +167,7 @@ get_page:
 		spin_unlock_irqrestore(&pool->lock, flags);
 		/* paired with rmb in mempool_free(), read comment there */
 		smp_wmb();
+		trace_printk("dmapool_alloc_page\n");
 		/*
 		 * Update the allocation stack trace as this is more useful
 		 * for debugging.
@@ -200,13 +201,14 @@ void dmapool_free_page(struct page *page, dmapool_t *pool) {
 	if (likely(pool->curr_page_nr < pool->page_nr)) {
 		spin_lock_irqsave(&pool->lock, flags);
 		if (likely(pool->curr_page_nr < pool->page_nr)) {
-			printk(KERN_INFO "dmapool_free_page!\n");
+			trace_printk("dmapool_free_page!\n");
 		        pool->page_array[pool->curr_page_nr++]=page;
 			spin_unlock_irqrestore(&pool->lock, flags);
 			return;
 		}
 		spin_unlock_irqrestore(&pool->lock, flags);
                 printk(KERN_ERR "dmapool full!\n");
+		/*Should not happen!*/
 	}
 }
 EXPORT_SYMBOL(dmapool_free_page);
