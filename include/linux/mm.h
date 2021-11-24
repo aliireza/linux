@@ -1048,10 +1048,10 @@ static inline void put_page(struct page *page)
 	if (put_devmap_managed_page(page))
 		return;
 
-	if(page->dp){
-		// trace_printk("[mempool_free]: %s:%d\n",__FUNCTION__,__LINE__);
-		dmapool_free_page(page,page->dp);
-	}
+	// if(page->dp){
+	// 	// trace_printk("[mempool_free]: %s:%d\n",__FUNCTION__,__LINE__);
+	// 	dmapool_free_page(page,page->dp);
+	// }
 
 	if (put_page_testzero(page))
 		__put_page(page);

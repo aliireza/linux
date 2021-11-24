@@ -73,6 +73,7 @@ dmapool_t *dmapool_create(u64 page_nr, int hugepage_order, gfp_t gfp_mask, int n
 		return NULL;
 	}
 
+	spin_lock_init(&pool->lock);
         pool->hugepage_nr = CEIL(page_nr,(1<<hugepage_order));
         pool->page_nr = (1<<hugepage_order)*pool->hugepage_nr;
         pool->hugepage_order = hugepage_order;
@@ -102,7 +103,7 @@ dmapool_t *dmapool_create(u64 page_nr, int hugepage_order, gfp_t gfp_mask, int n
 
         /* Allocate Hugepages */
 
-	printk(KERN_INFO "pool->hugepage_nr %d pool->page_nr %lld\n", pool->hugepage_nr,pool->page_nr);
+	// printk(KERN_INFO "pool->hugepage_nr %d pool->page_nr %lld\n", pool->hugepage_nr,pool->page_nr);
 
 	while (pool->curr_hugepage_nr < pool->hugepage_nr) {
                 if(!dmapool_refill(pool)) {
@@ -126,10 +127,12 @@ EXPORT_SYMBOL(dmapool_create);
  * Note that the user should ensure that all 4-KB pages are returned to the pool.
  */
 void dmapool_destroy(dmapool_t *pool) {
-	unsigned long flags;
 	struct page* tmp;
 	
-	spin_lock_irqsave(&pool->lock, flags);
+	if (in_serving_softirq())
+		spin_lock(&pool->lock);
+	else
+		spin_lock_bh(&pool->lock);
 	if(pool->curr_page_nr == pool->page_nr) {
 		while(pool->curr_hugepage_nr) {
 			if(pool->dev)
@@ -142,7 +145,10 @@ void dmapool_destroy(dmapool_t *pool) {
 	} else {
 		printk(KERN_ERR "User should return all pages back to the dmapool!\n");
 	}
-	spin_unlock_irqrestore(&pool->lock, flags);
+	if (in_serving_softirq())
+		spin_unlock(&pool->lock);
+	else
+		spin_unlock_bh(&pool->lock);
 
 	if(pool->dev)
 		put_device(pool->dev);
@@ -158,13 +164,18 @@ EXPORT_SYMBOL(dmapool_destroy);
  */
 struct page *dmapool_alloc_page(dmapool_t *pool) {
         struct page *page;
-        unsigned long flags;
 
 get_page:
-	spin_lock_irqsave(&pool->lock, flags);
+	if (in_serving_softirq())
+		spin_lock(&pool->lock);
+	else
+		spin_lock_bh(&pool->lock);
 	if (likely(pool->curr_page_nr)) {
 		page = pool->page_array[--pool->curr_page_nr];
-		spin_unlock_irqrestore(&pool->lock, flags);
+		if (in_serving_softirq())
+			spin_unlock(&pool->lock);
+		else
+			spin_unlock_bh(&pool->lock);
 		/* paired with rmb in mempool_free(), read comment there */
 		smp_wmb();
 		trace_printk("dmapool_alloc_page\n");
@@ -175,11 +186,17 @@ get_page:
 		return page;
 	} else {
                 printk(KERN_WARNING "dmapool empty!\n");
-                spin_lock_irqsave(&pool->lock, flags);
+		if (in_serving_softirq())
+			spin_lock(&pool->lock);
+		else
+			spin_lock_bh(&pool->lock);
                 pool->page_nr += (1<<pool->hugepage_order);
                 pool->hugepage_nr++;
                 dmapool_refill(pool);
-                spin_unlock_irqrestore(&pool->lock, flags);
+		if (in_serving_softirq())
+			spin_unlock(&pool->lock);
+		else
+			spin_unlock_bh(&pool->lock);
                 goto get_page;
         }
 }
@@ -191,7 +208,6 @@ EXPORT_SYMBOL(dmapool_alloc_page);
  * 
  */
 void dmapool_free_page(struct page *page, dmapool_t *pool) {
-	unsigned long flags;
 
 	if (unlikely(page == NULL))
 		return;
@@ -199,14 +215,23 @@ void dmapool_free_page(struct page *page, dmapool_t *pool) {
         smp_rmb();
 
 	if (likely(pool->curr_page_nr < pool->page_nr)) {
-		spin_lock_irqsave(&pool->lock, flags);
+		if (in_serving_softirq())
+			spin_lock(&pool->lock);
+		else
+			spin_lock_bh(&pool->lock);
 		if (likely(pool->curr_page_nr < pool->page_nr)) {
 			trace_printk("dmapool_free_page!\n");
 		        pool->page_array[pool->curr_page_nr++]=page;
-			spin_unlock_irqrestore(&pool->lock, flags);
+			if (in_serving_softirq())
+				spin_unlock(&pool->lock);
+			else
+				spin_unlock_bh(&pool->lock);
 			return;
 		}
-		spin_unlock_irqrestore(&pool->lock, flags);
+		if (in_serving_softirq())
+			spin_unlock(&pool->lock);
+		else
+			spin_unlock_bh(&pool->lock);
                 printk(KERN_ERR "dmapool full!\n");
 		/*Should not happen!*/
 	}

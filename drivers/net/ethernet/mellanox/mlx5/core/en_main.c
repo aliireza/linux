@@ -552,9 +552,9 @@ static int mlx5e_alloc_rq(struct mlx5e_channel *c,
 		pp_params.nid       = cpu_to_node(c->cpu);
 		pp_params.dev       = c->pdev;
 		pp_params.dma_dir   = rq->buff.map_dir;
-		if(mdev->pdev->dev.page_dmapools[rq->ix]) {
+		if(mdev->pdev->dev.page_dmapools[0]) {
 			mlx5_core_info(mdev,"dmapool available!");
-			pp_params.dmapool   = mdev->pdev->dev.page_dmapools[rq->ix];
+			pp_params.dmapool   = mdev->pdev->dev.page_dmapools[0];
 		} else {
 			pp_params.dmapool   = NULL;
 		}
@@ -5432,8 +5432,8 @@ static void *mlx5e_add(struct mlx5_core_dev *mdev)
 	}
 #endif
 	//&mdev->pdev->dev
-	for(i=0;i<64;i++){
-		buffer_dmapool = dmapool_create(65536, 9, GFP_ATOMIC | __GFP_NOWARN, 0, NULL, DMA_FROM_DEVICE);
+	for(i=0;i<1;i++){
+		buffer_dmapool = dmapool_create(262144*2, 9, GFP_ATOMIC | __GFP_NOWARN, 0, NULL, DMA_FROM_DEVICE);
 		if(buffer_dmapool){
 			mdev->pdev->dev.page_dmapools[i] = buffer_dmapool;
 			mlx5_core_info(mdev,"buffer_dmapool allocated!");

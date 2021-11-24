@@ -139,7 +139,7 @@ static struct page *__page_pool_alloc_pages_slow(struct page_pool *pool,
 	/* Use dmapool */
 	if(likely(pool->p.dmapool && !pool->p.order)){
 		page = dmapool_alloc_page(pool->p.dmapool);
-		printk("dmapool currrent size: %llu\n",pool->p.dmapool->curr_page_nr);
+		trace_printk("dmapool currrent size: %llu\n",pool->p.dmapool->curr_page_nr);
 	}
 	else {
 		page = alloc_pages_node(pool->p.nid, gfp, pool->p.order);
