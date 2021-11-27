@@ -31,6 +31,9 @@ static int page_pool_init(struct page_pool *pool,
 {
 	unsigned int ring_qsize = 1024; /* Default */
 
+	INIT_LIST_HEAD(&pool->dma_db);
+	pool->dma_db_cnt = 0;
+
 	memcpy(&pool->p, params, sizeof(pool->p));
 
 	/* Validate only known flags were used */
@@ -43,6 +46,11 @@ static int page_pool_init(struct page_pool *pool,
 	/* Sanity limit mem that can be pinned down */
 	if (ring_qsize > 32768)
 		return -E2BIG;
+
+	if (!pool->p.bulk_size)
+		pool->p.bulk_size = PP_ALLOC_CACHE_REFILL;
+	else
+		pool->p.bulk_size = roundup_pow_of_two(pool->p.bulk_size);
 
 	/* DMA direction is either DMA_FROM_DEVICE or DMA_BIDIRECTIONAL.
 	 * DMA_BIDIRECTIONAL is for allowing page used for DMA sending,
@@ -249,12 +257,62 @@ static struct page *__page_pool_alloc_page_order(struct page_pool *pool,
 	return page;
 }
 
+/* Bulk alloc from contiguous/ordered pages (e.g., a 2-MB page) */
+static int __page_pool_alloc_bulk_pages(struct page_pool *pool, gfp_t gfp,
+					unsigned long nr_pages,
+					struct page **page_array)
+{
+	dma_addr_t dma;
+	const int hugepage_order = ilog2(nr_pages);
+	struct dma_addr_entry *large_entry;
+	struct page *hugepage;
+	int i;
+
+	hugepage = alloc_pages_node(pool->p.nid, gfp, hugepage_order);
+
+	if (!hugepage) {
+		printk(KERN_ERR "bulk_refill: cannot allocate hugepage!");
+		return 0;
+	}
+
+	if (pool->p.flags & PP_FLAG_DMA_MAP) {
+		dma = dma_map_page_attrs(pool->p.dev, hugepage, 0,
+					 (PAGE_SIZE << hugepage_order),
+					 pool->p.dma_dir,
+					 DMA_ATTR_SKIP_CPU_SYNC);
+
+		if (dma_mapping_error(pool->p.dev, dma)) {
+			printk(KERN_ERR "could not dma_map hugepage!\n");
+			return false;
+		}
+
+		large_entry = kzalloc(sizeof(*large_entry), GFP_KERNEL);
+		if (!large_entry) {
+			printk(KERN_ERR "dma_addr_entry allocation failed!\n");
+			return -ENOMEM;
+		}
+		large_entry->dma = dma;
+		list_add(&large_entry->list, &pool->dma_db);
+		pool->dma_db_cnt++;
+	}
+
+	for (i = 0; i < (1 << hugepage_order); i++) {
+		page_array[i] = hugepage + i;
+		set_page_count(page_array[i], 1);
+		if (pool->p.flags & PP_FLAG_DMA_MAP)
+			page_pool_set_dma_addr(page_array[i],
+					       dma + PAGE_SIZE * i);
+	}
+
+	return (1 << hugepage_order);
+}
+
 /* slow path */
 noinline
 static struct page *__page_pool_alloc_pages_slow(struct page_pool *pool,
 						 gfp_t gfp)
 {
-	const int bulk = PP_ALLOC_CACHE_REFILL;
+	const int bulk = 512;
 	unsigned int pp_flags = pool->p.flags;
 	unsigned int pp_order = pool->p.order;
 	struct page *page;
@@ -271,7 +329,16 @@ static struct page *__page_pool_alloc_pages_slow(struct page_pool *pool,
 	/* Mark empty alloc.cache slots "empty" for alloc_pages_bulk_array */
 	memset(&pool->alloc.cache, 0, sizeof(void *) * bulk);
 
-	nr_pages = alloc_pages_bulk_array(gfp, bulk, pool->alloc.cache);
+	if (pool->p.flags & PP_FLAG_CONTIG_BULK) {
+		nr_pages = __page_pool_alloc_bulk_pages(pool, gfp, bulk,
+							pool->alloc.cache);
+		trace_printk(
+			KERN_INFO
+			"__page_pool_alloc_bulk_pages: rq %d bulk %d - #entry: %d\n",
+			pool->p.index, bulk, pool->dma_db_cnt);
+	} else
+		nr_pages = alloc_pages_bulk_array(gfp, bulk, pool->alloc.cache);
+
 	if (unlikely(!nr_pages))
 		return NULL;
 
@@ -280,10 +347,12 @@ static struct page *__page_pool_alloc_pages_slow(struct page_pool *pool,
 	 */
 	for (i = 0; i < nr_pages; i++) {
 		page = pool->alloc.cache[i];
-		if ((pp_flags & PP_FLAG_DMA_MAP) &&
-		    unlikely(!page_pool_dma_map(pool, page))) {
-			put_page(page);
-			continue;
+		if (!(pp_flags & PP_FLAG_CONTIG_BULK)) {
+			if ((pp_flags & PP_FLAG_DMA_MAP) &&
+			    unlikely(!page_pool_dma_map(pool, page))) {
+				put_page(page);
+				continue;
+			}
 		}
 
 		page_pool_set_pp_info(pool, page);
@@ -350,6 +419,12 @@ void page_pool_release_page(struct page_pool *pool, struct page *page)
 {
 	dma_addr_t dma;
 	int count;
+
+	trace_printk(KERN_INFO "page_pool_release_page: iflight %d\n",
+		     page_pool_inflight(pool));
+
+	if (pool->p.flags & PP_FLAG_CONTIG_BULK)
+		goto skip_dma_unmap;
 
 	if (!(pool->p.flags & PP_FLAG_DMA_MAP))
 		/* Always account for inflight pages, even if we didn't
@@ -617,10 +692,26 @@ static void page_pool_empty_ring(struct page_pool *pool)
 
 static void page_pool_free(struct page_pool *pool)
 {
+	struct dma_addr_entry *tmp, *iter;
+	const int hugepage_order = ilog2(pool->p.bulk_size);
+
 	if (pool->disconnect)
 		pool->disconnect(pool);
 
 	ptr_ring_cleanup(&pool->ring, NULL);
+
+	if ((pool->p.flags & PP_FLAG_CONTIG_BULK) &&
+	    (pool->p.flags & PP_FLAG_DMA_MAP)) {
+		list_for_each_entry_safe (iter, tmp, &pool->dma_db, list) {
+			list_del(&iter->list);
+
+			dma_unmap_page_attrs(pool->p.dev, iter->dma,
+					     PAGE_SIZE << hugepage_order,
+					     pool->p.dma_dir,
+					     DMA_ATTR_SKIP_CPU_SYNC);
+			kfree(iter);
+		}
+	}
 
 	if (pool->p.flags & PP_FLAG_DMA_MAP)
 		put_device(pool->p.dev);

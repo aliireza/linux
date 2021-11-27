@@ -46,9 +46,14 @@
 					* device driver responsibility
 					*/
 #define PP_FLAG_PAGE_FRAG	BIT(2) /* for page frag feature */
-#define PP_FLAG_ALL		(PP_FLAG_DMA_MAP |\
-				 PP_FLAG_DMA_SYNC_DEV |\
-				 PP_FLAG_PAGE_FRAG)
+#define PP_FLAG_CONTIG_BULK                                                    \
+	BIT(3) /* If set __page_pool_alloc_pages_slow
+					* tries to get contiguous pages via alloc_pages
+					* rather than using alloc_pages_bulk_array
+					*/
+#define PP_FLAG_ALL                                                            \
+	(PP_FLAG_DMA_MAP | PP_FLAG_DMA_SYNC_DEV | PP_FLAG_PAGE_FRAG |          \
+	 PP_FLAG_CONTIG_BULK)
 
 /*
  * Fast allocation side cache array/stack
@@ -64,11 +69,17 @@
  * cache is already full (or partly full) then the XDP_DROP recycles
  * would have to take a slower code path.
  */
+#define PP_ALLOC_CACHE_MAX_SIZE 1024
 #define PP_ALLOC_CACHE_SIZE	128
 #define PP_ALLOC_CACHE_REFILL	64
 struct pp_alloc_cache {
 	u32 count;
-	struct page *cache[PP_ALLOC_CACHE_SIZE];
+	struct page *cache[PP_ALLOC_CACHE_MAX_SIZE];
+};
+
+struct dma_addr_entry {
+	struct list_head list;
+	dma_addr_t dma;
 };
 
 struct page_pool_params {
@@ -80,6 +91,8 @@ struct page_pool_params {
 	enum dma_data_direction dma_dir; /* DMA mapping direction */
 	unsigned int	max_len; /* max DMA sync memory size */
 	unsigned int	offset;  /* DMA addr offset */
+	unsigned int bulk_size; /* Bulk allocatio size */
+	unsigned int index;
 };
 
 struct page_pool {
@@ -132,6 +145,10 @@ struct page_pool {
 	refcount_t user_cnt;
 
 	u64 destroy_cnt;
+
+	/* A list to keep track of dma entries */
+	struct list_head dma_db;
+	unsigned int dma_db_cnt;
 };
 
 struct page *page_pool_alloc_pages(struct page_pool *pool, gfp_t gfp);

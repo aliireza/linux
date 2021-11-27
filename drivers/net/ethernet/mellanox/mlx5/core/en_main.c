@@ -497,11 +497,17 @@ static int mlx5e_alloc_rq(struct mlx5e_params *params,
 	} else {
 		/* Create a page_pool and register it with rxq */
 		pp_params.order     = 0;
-		pp_params.flags     = 0; /* No-internal DMA mapping in page_pool */
+		pp_params.flags =
+			PP_FLAG_CONTIG_BULK &
+			PP_FLAG_DMA_MAP; /* Use contiguous pages + large IOTLB mappings */
 		pp_params.pool_size = pool_size;
+		pp_params.bulk_size = 512;
+		pp_params.index = rq->ix;
 		pp_params.nid       = node;
 		pp_params.dev       = rq->pdev;
 		pp_params.dma_dir   = rq->buff.map_dir;
+
+		printk("page_pool %d created - size: %d\n", rq->ix, pool_size);
 
 		/* page_pool can be used even when there is no rq->xdp_prog,
 		 * given page_pool does not handle DMA mapping there is no
