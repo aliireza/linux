@@ -312,7 +312,7 @@ noinline
 static struct page *__page_pool_alloc_pages_slow(struct page_pool *pool,
 						 gfp_t gfp)
 {
-	const int bulk = 512;
+	const int bulk = pool->p.bulk_size;
 	unsigned int pp_flags = pool->p.flags;
 	unsigned int pp_order = pool->p.order;
 	struct page *page;
