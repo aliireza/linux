@@ -219,21 +219,15 @@ void dmapool_free_page(struct page *page, dmapool_t *pool) {
 			spin_lock(&pool->lock);
 		else
 			spin_lock_bh(&pool->lock);
-		if (likely(pool->curr_page_nr < pool->page_nr)) {
-			trace_printk("dmapool_free_page!\n");
-		        pool->page_array[pool->curr_page_nr++]=page;
-			if (in_serving_softirq())
-				spin_unlock(&pool->lock);
-			else
-				spin_unlock_bh(&pool->lock);
-			return;
-		}
+		trace_printk("dmapool_free_page!\n");
+		pool->page_array[pool->curr_page_nr++]=page;
 		if (in_serving_softirq())
 			spin_unlock(&pool->lock);
 		else
 			spin_unlock_bh(&pool->lock);
-                printk(KERN_ERR "dmapool full!\n");
+		return;
+	} else
+		printk(KERN_ERR "dmapool full!\n");
 		/*Should not happen!*/
-	}
 }
 EXPORT_SYMBOL(dmapool_free_page);
