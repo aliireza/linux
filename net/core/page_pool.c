@@ -26,6 +26,122 @@
 
 #define BIAS_MAX	LONG_MAX
 
+static inline int page_pool_fill_backup_ring(struct page_pool *pool)
+{
+	dma_addr_t dma;
+	struct dma_addr_entry *large_entry;
+	struct page *hugepage, *tmp_page;
+	int i, ret;
+
+	hugepage = alloc_pages_node(pool->p.nid, GFP_ATOMIC | __GFP_NOWARN,
+				    PP_BACKUP_RING_PAGE_ORDER);
+
+	if (!hugepage) {
+		printk(KERN_ERR "Cannot allocate hugepage!");
+		return 0;
+	}
+
+	if (pool->p.flags & PP_FLAG_DMA_MAP) {
+		dma = dma_map_page_attrs(
+			pool->p.dev, hugepage, 0,
+			(PAGE_SIZE << PP_BACKUP_RING_PAGE_ORDER),
+			pool->p.dma_dir, DMA_ATTR_SKIP_CPU_SYNC);
+
+		if (dma_mapping_error(pool->p.dev, dma)) {
+			printk(KERN_ERR "could not dma_map hugepage!\n");
+			return false;
+		}
+
+		large_entry = kzalloc(sizeof(*large_entry), GFP_KERNEL);
+		if (!large_entry) {
+			printk(KERN_ERR "dma_addr_entry allocation failed!\n");
+			return -ENOMEM;
+		}
+		large_entry->dma = dma;
+		list_add(&large_entry->list, &pool->dma_db);
+		pool->dma_db_cnt++;
+	}
+
+	for (i = 0; i < (1 << PP_BACKUP_RING_PAGE_ORDER); i++) {
+		tmp_page = hugepage + i;
+		if (!page_ref_count(tmp_page))
+			page_ref_inc(tmp_page);
+
+		if (in_serving_softirq())
+			ret = ptr_ring_produce(&pool->backup_ring, tmp_page);
+		else
+			ret = ptr_ring_produce_bh(&pool->backup_ring, tmp_page);
+
+		if (ret != 0) {
+			printk(KERN_WARNING "could not put in the ring!\n");
+			put_page(tmp_page);
+			return -1;
+		}
+
+		atomic_inc(&pool->backup_ring_cnt);
+
+		if (pool->p.flags & PP_FLAG_DMA_MAP)
+			page_pool_set_dma_addr(tmp_page, dma + PAGE_SIZE * i);
+
+		pool->pages_state_hold_cnt++;
+	}
+
+	return 1;
+}
+
+static int page_pool_backup_ring_init(struct page_pool *pool)
+{
+	int curr_hugepage_nr = 0;
+
+	if (ptr_ring_init(&pool->backup_ring,
+			  (1 << PP_BACKUP_RING_PAGE_ORDER) *
+				  PP_BACKUP_RING_NPAGE,
+			  GFP_KERNEL) < 0) {
+		printk(KERN_INFO "could not allocate backup_ring\n");
+		return -ENOMEM;
+	}
+
+	/* Allocate Hugepages */
+
+	while (curr_hugepage_nr < PP_BACKUP_RING_NPAGE) {
+		if (!page_pool_fill_backup_ring(pool)) {
+			printk(KERN_ERR "page_pool_fill_backup_ring failed!\n");
+			return -ENOMEM;
+		}
+		curr_hugepage_nr++;
+	}
+
+	trace_printk(KERN_INFO "allocated pool via %d 2-MB pages: %d pages\n",
+		     pool->dma_db_cnt, atomic_read(&pool->backup_ring_cnt));
+
+	return 0;
+}
+
+void page_pool_return_to_backup_ring(struct page_pool *pool, struct page *page)
+{
+	int ret;
+
+	if (unlikely(page == NULL))
+		return;
+
+	if (!(pool->p.flags & PP_FLAG_BACKUP_RING))
+		put_page(page);
+
+	if (in_serving_softirq())
+		ret = ptr_ring_produce(&pool->backup_ring, page);
+	else
+		ret = ptr_ring_produce_bh(&pool->backup_ring, page);
+
+	if (ret != 0) {
+		printk(KERN_ERR "could not put in the ring!\n");
+		put_page(page);
+	}
+	atomic_inc(&pool->backup_ring_cnt);
+
+	// trace_printk(KERN_INFO "returned to the backup ring - ring size: %d\n",atomic_read(&pool->backup_ring_cnt));
+}
+EXPORT_SYMBOL(page_pool_return_to_backup_ring);
+
 static int page_pool_init(struct page_pool *pool,
 			  const struct page_pool_params *params)
 {
@@ -51,6 +167,13 @@ static int page_pool_init(struct page_pool *pool,
 		pool->p.bulk_size = PP_ALLOC_CACHE_REFILL;
 	else
 		pool->p.bulk_size = roundup_pow_of_two(pool->p.bulk_size);
+
+	if (pool->p.flags & PP_FLAG_BACKUP_RING) {
+		if (page_pool_backup_ring_init(pool) < 0) {
+			printk(KERN_ERR "could not preallocate!");
+			return -EINVAL;
+		}
+	}
 
 	/* DMA direction is either DMA_FROM_DEVICE or DMA_BIDIRECTIONAL.
 	 * DMA_BIDIRECTIONAL is for allowing page used for DMA sending,
@@ -256,6 +379,44 @@ static struct page *__page_pool_alloc_page_order(struct page_pool *pool,
 	trace_page_pool_state_hold(pool, page, pool->pages_state_hold_cnt);
 	return page;
 }
+/* Bulk alloc from the pre-allocated ring */
+static int __page_pool_get_bulk_pages_from_ring(struct page_pool *pool,
+						unsigned long nr_pages,
+						struct page **page_array)
+{
+	struct ptr_ring *r = &pool->backup_ring;
+	struct page *page;
+	int i = 0;
+
+	if (__ptr_ring_empty(r)) {
+		trace_printk(KERN_WARNING "filling backup ring!\n");
+		if (!page_pool_fill_backup_ring(pool)) {
+			printk(KERN_ERR "page_pool_fill_backup_ring failed!\n");
+			return -ENOMEM;
+		}
+	}
+
+	/*
+	 * TODO: check whether the page is from the same NUMA node
+	 * This might happen in some cases where a page from another node is returned to this pool
+	 */
+
+	spin_lock(&r->consumer_lock);
+
+	/* Refill the given page array */
+	do {
+		page = __ptr_ring_consume(r);
+		if (unlikely(!page))
+			break;
+
+		page_array[i++] = page;
+		atomic_dec(&pool->backup_ring_cnt);
+	} while (i < nr_pages);
+
+	spin_unlock(&r->consumer_lock);
+
+	return i;
+}
 
 /* Bulk alloc from contiguous/ordered pages (e.g., a 2-MB page) */
 static int __page_pool_alloc_bulk_pages(struct page_pool *pool, gfp_t gfp,
@@ -298,7 +459,8 @@ static int __page_pool_alloc_bulk_pages(struct page_pool *pool, gfp_t gfp,
 
 	for (i = 0; i < (1 << hugepage_order); i++) {
 		page_array[i] = hugepage + i;
-		set_page_count(page_array[i], 1);
+		if (!page_ref_count(page_array[i]))
+			page_ref_inc(page_array[i]);
 		if (pool->p.flags & PP_FLAG_DMA_MAP)
 			page_pool_set_dma_addr(page_array[i],
 					       dma + PAGE_SIZE * i);
@@ -336,6 +498,9 @@ static struct page *__page_pool_alloc_pages_slow(struct page_pool *pool,
 			KERN_INFO
 			"__page_pool_alloc_bulk_pages: rq %d bulk %d - #entry: %d\n",
 			pool->p.index, bulk, pool->dma_db_cnt);
+	} else if (pool->p.flags & PP_FLAG_BACKUP_RING) {
+		nr_pages = __page_pool_get_bulk_pages_from_ring(
+			pool, bulk, pool->alloc.cache);
 	} else
 		nr_pages = alloc_pages_bulk_array(gfp, bulk, pool->alloc.cache);
 
@@ -347,7 +512,7 @@ static struct page *__page_pool_alloc_pages_slow(struct page_pool *pool,
 	 */
 	for (i = 0; i < nr_pages; i++) {
 		page = pool->alloc.cache[i];
-		if (!(pp_flags & PP_FLAG_CONTIG_BULK)) {
+		if (!(pp_flags & (PP_FLAG_CONTIG_BULK | PP_FLAG_BACKUP_RING))) {
 			if ((pp_flags & PP_FLAG_DMA_MAP) &&
 			    unlikely(!page_pool_dma_map(pool, page))) {
 				put_page(page);
@@ -420,10 +585,7 @@ void page_pool_release_page(struct page_pool *pool, struct page *page)
 	dma_addr_t dma;
 	int count;
 
-	trace_printk(KERN_INFO "page_pool_release_page: iflight %d\n",
-		     page_pool_inflight(pool));
-
-	if (pool->p.flags & PP_FLAG_CONTIG_BULK)
+	if (pool->p.flags & (PP_FLAG_CONTIG_BULK | PP_FLAG_BACKUP_RING))
 		goto skip_dma_unmap;
 
 	if (!(pool->p.flags & PP_FLAG_DMA_MAP))
@@ -542,7 +704,13 @@ __page_pool_put_page(struct page_pool *pool, struct page *page,
 	 * will be invoking put_page.
 	 */
 	/* Do not replace this with page_pool_return_page() */
+	/* TODO: Fix these problematic lines (root cause of pool leakage) */
+	// trace_printk(KERN_ERR "leaking\n");
 	page_pool_release_page(pool, page);
+	// if(pool->p.flags & PP_FLAG_BACKUP_RING) {
+	// 	page_pool_return_to_backup_ring(pool, page);
+	// 	return NULL;
+	// }
 	put_page(page);
 
 	return NULL;
@@ -553,8 +721,14 @@ void page_pool_put_page(struct page_pool *pool, struct page *page,
 {
 	page = __page_pool_put_page(pool, page, dma_sync_size, allow_direct);
 	if (page && !page_pool_recycle_in_ring(pool, page)) {
-		/* Cache full, fallback to free pages */
-		page_pool_return_page(pool, page);
+		/* Cache full, return to the backup ring */
+		if (pool->p.flags & PP_FLAG_BACKUP_RING) {
+			page_pool_release_page(pool, page);
+			page_pool_return_to_backup_ring(pool, page);
+		} else {
+			/* Cache full, fallback to free pages */
+			page_pool_return_page(pool, page);
+		}
 	}
 }
 EXPORT_SYMBOL(page_pool_put_page);
@@ -690,17 +864,33 @@ static void page_pool_empty_ring(struct page_pool *pool)
 	}
 }
 
+static void page_pool_empty_backup_ring(struct page_pool *pool)
+{
+	struct page *page;
+
+	/* Empty recycle ring */
+	while ((page = ptr_ring_consume_bh(&pool->backup_ring))) {
+		/* Verify the refcnt invariant of cached pages */
+		if (!(page_ref_count(page) == 1))
+			pr_crit("%s() page_pool refcnt %d violation\n",
+				__func__, page_ref_count(page));
+
+		page_pool_return_page(pool, page);
+		atomic_dec(&pool->backup_ring_cnt);
+	}
+}
+
 static void page_pool_free(struct page_pool *pool)
 {
 	struct dma_addr_entry *tmp, *iter;
-	const int hugepage_order = ilog2(pool->p.bulk_size);
+	const int hugepage_order = PP_BACKUP_RING_PAGE_ORDER;
 
 	if (pool->disconnect)
 		pool->disconnect(pool);
 
 	ptr_ring_cleanup(&pool->ring, NULL);
 
-	if ((pool->p.flags & PP_FLAG_CONTIG_BULK) &&
+	if ((pool->p.flags & (PP_FLAG_CONTIG_BULK | PP_FLAG_BACKUP_RING)) &&
 	    (pool->p.flags & PP_FLAG_DMA_MAP)) {
 		list_for_each_entry_safe (iter, tmp, &pool->dma_db, list) {
 			list_del(&iter->list);
@@ -712,6 +902,8 @@ static void page_pool_free(struct page_pool *pool)
 			kfree(iter);
 		}
 	}
+
+	ptr_ring_cleanup(&pool->backup_ring, NULL);
 
 	if (pool->p.flags & PP_FLAG_DMA_MAP)
 		put_device(pool->p.dev);
@@ -745,6 +937,9 @@ static void page_pool_scrub(struct page_pool *pool)
 	 * be in-flight.
 	 */
 	page_pool_empty_ring(pool);
+
+	if (pool->p.flags & PP_FLAG_BACKUP_RING)
+		page_pool_empty_backup_ring(pool);
 }
 
 static int page_pool_release(struct page_pool *pool)
@@ -773,8 +968,9 @@ static void page_pool_release_retry(struct work_struct *wq)
 	if (time_after_eq(jiffies, pool->defer_warn)) {
 		int sec = (s32)((u32)jiffies - (u32)pool->defer_start) / HZ;
 
-		pr_warn("%s() stalled pool shutdown %d inflight %d sec\n",
-			__func__, inflight, sec);
+		pr_warn("%s() stalled pool shutdown %d inflight %d backup_ring_cnt: %d sec\n",
+			__func__, inflight, atomic_read(&pool->backup_ring_cnt),
+			sec);
 		pool->defer_warn = jiffies + DEFER_WARN_INTERVAL;
 	}
 

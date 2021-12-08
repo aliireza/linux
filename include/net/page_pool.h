@@ -51,9 +51,10 @@
 					* tries to get contiguous pages via alloc_pages
 					* rather than using alloc_pages_bulk_array
 					*/
+#define PP_FLAG_BACKUP_RING BIT(4) /* Pre-allocate 2-MB pages in a ring */
 #define PP_FLAG_ALL                                                            \
 	(PP_FLAG_DMA_MAP | PP_FLAG_DMA_SYNC_DEV | PP_FLAG_PAGE_FRAG |          \
-	 PP_FLAG_CONTIG_BULK)
+	 PP_FLAG_CONTIG_BULK | PP_FLAG_BACKUP_RING)
 
 /*
  * Fast allocation side cache array/stack
@@ -72,6 +73,8 @@
 #define PP_ALLOC_CACHE_MAX_SIZE 1024
 #define PP_ALLOC_CACHE_SIZE	128
 #define PP_ALLOC_CACHE_REFILL	64
+#define PP_BACKUP_RING_PAGE_ORDER 9
+#define PP_BACKUP_RING_NPAGE 512 /* 1-GB page = 512*512 4-KB pages*/
 struct pp_alloc_cache {
 	u32 count;
 	struct page *cache[PP_ALLOC_CACHE_MAX_SIZE];
@@ -149,6 +152,10 @@ struct page_pool {
 	/* A list to keep track of dma entries */
 	struct list_head dma_db;
 	unsigned int dma_db_cnt;
+
+	/* A ring to store pre-allocated pages backed by 2-MB pages */
+	struct ptr_ring backup_ring;
+	atomic_t backup_ring_cnt;
 };
 
 struct page *page_pool_alloc_pages(struct page_pool *pool, gfp_t gfp);
@@ -316,5 +323,7 @@ static inline void page_pool_ring_unlock(struct page_pool *pool)
 	else
 		spin_unlock_bh(&pool->ring.producer_lock);
 }
+
+void page_pool_return_to_backup_ring(struct page_pool *pool, struct page *page);
 
 #endif /* _NET_PAGE_POOL_H */

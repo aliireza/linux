@@ -268,6 +268,8 @@ static inline int mlx5e_page_alloc_pool(struct mlx5e_rq *rq,
 		return 0;
 
 	dma_info->page = page_pool_dev_alloc_pages(rq->page_pool);
+	trace_printk("rxq: %d - backup ring size: %d\n", rq->ix,
+		     atomic_read(&rq->page_pool->backup_ring_cnt));
 	if (unlikely(!dma_info->page))
 		return -ENOMEM;
 
@@ -313,7 +315,12 @@ void mlx5e_page_release_dynamic(struct mlx5e_rq *rq,
 		if (!(rq->page_pool->p.flags & PP_FLAG_DMA_MAP))
 			mlx5e_page_dma_unmap(rq, dma_info);
 		page_pool_release_page(rq->page_pool, dma_info->page);
-		put_page(dma_info->page);
+		if (rq->page_pool->p.flags & PP_FLAG_BACKUP_RING) {
+			page_pool_return_to_backup_ring(rq->page_pool,
+							dma_info->page);
+		} else {
+			put_page(dma_info->page);
+		}
 	}
 }
 

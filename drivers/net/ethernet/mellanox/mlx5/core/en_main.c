@@ -498,10 +498,10 @@ static int mlx5e_alloc_rq(struct mlx5e_params *params,
 		/* Create a page_pool and register it with rxq */
 		pp_params.order     = 0;
 		pp_params.flags =
-			PP_FLAG_CONTIG_BULK |
+			PP_FLAG_BACKUP_RING |
 			PP_FLAG_DMA_MAP; /* Use contiguous pages + large IOTLB mappings */
 		pp_params.pool_size = pool_size;
-		pp_params.bulk_size = 512;
+		pp_params.bulk_size = 0;
 		pp_params.index = rq->ix;
 		pp_params.nid       = node;
 		pp_params.dev       = rq->pdev;
