@@ -84,6 +84,8 @@ static inline int page_pool_fill_backup_ring(struct page_pool *pool)
 			page_pool_set_dma_addr(tmp_page, dma + PAGE_SIZE * i);
 
 		pool->pages_state_hold_cnt++;
+		trace_page_pool_state_hold(pool, tmp_page,
+					   pool->pages_state_hold_cnt);
 	}
 
 	return 1;
@@ -523,9 +525,11 @@ static struct page *__page_pool_alloc_pages_slow(struct page_pool *pool,
 		page_pool_set_pp_info(pool, page);
 		pool->alloc.cache[pool->alloc.count++] = page;
 		/* Track how many pages are held 'in-flight' */
-		pool->pages_state_hold_cnt++;
-		trace_page_pool_state_hold(pool, page,
-					   pool->pages_state_hold_cnt);
+		if (!(pool->p.flags & PP_FLAG_BACKUP_RING)) {
+			pool->pages_state_hold_cnt++;
+			trace_page_pool_state_hold(pool, page,
+						   pool->pages_state_hold_cnt);
+		}
 	}
 
 	/* Return last page */
@@ -705,9 +709,10 @@ __page_pool_put_page(struct page_pool *pool, struct page *page,
 	 */
 	/* Do not replace this with page_pool_return_page() */
 	/* TODO: Fix these problematic lines (root cause of pool leakage) */
-	// trace_printk(KERN_ERR "leaking\n");
+	//trace_printk(KERN_ERR "leaking\n");
 	page_pool_release_page(pool, page);
 	// if(pool->p.flags & PP_FLAG_BACKUP_RING) {
+	// 	set_page_count(page, 1);
 	// 	page_pool_return_to_backup_ring(pool, page);
 	// 	return NULL;
 	// }
@@ -723,7 +728,7 @@ void page_pool_put_page(struct page_pool *pool, struct page *page,
 	if (page && !page_pool_recycle_in_ring(pool, page)) {
 		/* Cache full, return to the backup ring */
 		if (pool->p.flags & PP_FLAG_BACKUP_RING) {
-			page_pool_release_page(pool, page);
+			// page_pool_release_page(pool, page);
 			page_pool_return_to_backup_ring(pool, page);
 		} else {
 			/* Cache full, fallback to free pages */
