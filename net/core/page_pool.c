@@ -710,12 +710,13 @@ __page_pool_put_page(struct page_pool *pool, struct page *page,
 	/* Do not replace this with page_pool_return_page() */
 	/* TODO: Fix these problematic lines (root cause of pool leakage) */
 	//trace_printk(KERN_ERR "leaking\n");
-	page_pool_release_page(pool, page);
-	// if(pool->p.flags & PP_FLAG_BACKUP_RING) {
+	if(pool->p.flags & PP_FLAG_BACKUP_RING) {
 	// 	set_page_count(page, 1);
-	// 	page_pool_return_to_backup_ring(pool, page);
-	// 	return NULL;
-	// }
+	 	page_pool_return_to_backup_ring(pool, page);
+	 	return NULL;
+	 }
+
+	page_pool_release_page(pool, page);
 	put_page(page);
 
 	return NULL;
