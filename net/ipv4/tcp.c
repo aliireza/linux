@@ -2358,6 +2358,9 @@ static int tcp_recvmsg_locked(struct sock *sk, struct msghdr *msg, size_t len,
 		last = skb_peek_tail(&sk->sk_receive_queue);
 		skb_queue_walk(&sk->sk_receive_queue, skb) {
 			last = skb;
+			/* XXX if we allow holes, update copied_seq */
+			if (tp->ignore_holes && before(*seq,TCP_SKB_CB(skb)->seq))
+				*seq = TCP_SKB_CB(skb)->seq;
 			/* Now that we have two receive queues this
 			 * shouldn't happen.
 			 */

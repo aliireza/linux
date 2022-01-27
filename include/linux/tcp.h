@@ -225,7 +225,8 @@ struct tcp_sock {
 	u8	compressed_ack;
 	u8	dup_ack_counter:2,
 		tlp_retrans:1,	/* TLP is a retransmission */
-		unused:5;
+        ignore_holes:1,
+		unused:4;
 	u32	chrono_start;	/* Start time in jiffies of a TCP chrono */
 	u32	chrono_stat[3];	/* Time in jiffies for chrono_stat stats */
 	u8	chrono_type:2,	/* current chronograph type */
@@ -250,6 +251,7 @@ struct tcp_sock {
 	u32	tlp_high_seq;	/* snd_nxt at the time of TLP */
 
 	u32	tcp_tx_delay;	/* delay (in usec) added to TX packets */
+    u32 tcp_test_drops; /* artificial packet drops. test only */
 	u64	tcp_wstamp_ns;	/* departure time for next sent data packet */
 	u64	tcp_clock_cache; /* cache last tcp_clock_ns() (see tcp_mstamp_refresh()) */
 
