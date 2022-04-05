@@ -14,7 +14,7 @@ typedef u64 netdev_features_t;
 enum {
 	NETIF_F_SG_BIT,			/* Scatter/gather IO. */
 	NETIF_F_IP_CSUM_BIT,		/* Can checksum TCP/UDP over IPv4. */
-	__UNUSED_NETIF_F_1,
+	//__UNUSED_NETIF_F_1,
 	NETIF_F_HW_CSUM_BIT,		/* Can checksum all the packets. */
 	NETIF_F_IPV6_CSUM_BIT,		/* Can checksum TCP/UDP over IPV6 */
 	NETIF_F_HIGHDMA_BIT,		/* Can DMA to high memory. */
@@ -90,6 +90,8 @@ enum {
 	NETIF_F_HW_HSR_TAG_RM_BIT,	/* Offload HSR tag removal */
 	NETIF_F_HW_HSR_FWD_BIT,		/* Offload HSR forwarding */
 	NETIF_F_HW_HSR_DUP_BIT,		/* Offload HSR duplication */
+
+	NETIF_F_RX_HP_BIT,		/* Use Hugepage for RX buffers */
 
 	/*
 	 * Add your fresh new feature above and remember to update
@@ -168,6 +170,7 @@ enum {
 #define NETIF_F_HW_HSR_TAG_RM	__NETIF_F(HW_HSR_TAG_RM)
 #define NETIF_F_HW_HSR_FWD	__NETIF_F(HW_HSR_FWD)
 #define NETIF_F_HW_HSR_DUP	__NETIF_F(HW_HSR_DUP)
+#define NETIF_F_RX_HP		__NETIF_F(RX_HP)
 
 /* Finds the next feature with the highest number of the range of start till 0.
  */
@@ -242,7 +245,7 @@ static inline int find_next_netdev_feature(u64 feature, unsigned long start)
 #define NETIF_F_UPPER_DISABLES	NETIF_F_LRO
 
 /* changeable features with no special hardware requirements */
-#define NETIF_F_SOFT_FEATURES	(NETIF_F_GSO | NETIF_F_GRO)
+#define NETIF_F_SOFT_FEATURES	(NETIF_F_GSO | NETIF_F_GRO | NETIF_F_RX_HP)
 
 /* Changeable features with no special hardware requirements that defaults to off. */
 #define NETIF_F_SOFT_FEATURES_OFF	(NETIF_F_GRO_FRAGLIST | NETIF_F_GRO_UDP_FWD)

@@ -3250,6 +3250,42 @@ static int mlx5e_set_mac(struct net_device *netdev, void *addr)
 
 typedef int (*mlx5e_feature_handler)(struct net_device *netdev, bool enable);
 
+static int set_feature_rx_hugepage(struct net_device *netdev, bool enable)
+{
+	struct mlx5e_priv *priv = netdev_priv(netdev);
+	struct mlx5_core_dev *mdev = priv->mdev;
+	struct mlx5e_params *cur_params;
+	struct mlx5e_params new_params;
+	bool reset = true;
+	int err = 0;
+
+	mutex_lock(&priv->state_lock);
+
+	if (enable && priv->xsk.refcnt) {
+		netdev_warn(netdev, "HugePage RX Alloc is incompatible with AF_XDP (%u XSKs are active)\n",
+			    priv->xsk.refcnt);
+		err = -EINVAL;
+		goto out;
+	}
+
+	new_params = *cur_params;
+	new_params.rx_huge = enable;
+
+	// if (cur_params->rq_wq_type == MLX5_WQ_TYPE_LINKED_LIST_STRIDING_RQ) {
+	// 	if (mlx5e_rx_mpwqe_is_linear_skb(mdev, cur_params, NULL) ==
+	// 	    mlx5e_rx_mpwqe_is_linear_skb(mdev, &new_params, NULL))
+	// 		reset = false;
+	// }
+
+	printk(KERN_INFO "NETIF_F_RX_HP %d\n", enable);
+
+	err = mlx5e_safe_switch_params(priv, &new_params,
+				       NULL, NULL, reset);
+out:
+	mutex_unlock(&priv->state_lock);
+	return err;
+}
+
 static int set_feature_lro(struct net_device *netdev, bool enable)
 {
 	struct mlx5e_priv *priv = netdev_priv(netdev);
@@ -3463,6 +3499,7 @@ int mlx5e_set_features(struct net_device *netdev, netdev_features_t features)
 #define MLX5E_HANDLE_FEATURE(feature, handler) \
 	mlx5e_handle_feature(netdev, &oper_features, features, feature, handler)
 
+	err |= MLX5E_HANDLE_FEATURE(NETIF_F_RX_HP, set_feature_rx_hugepage);
 	err |= MLX5E_HANDLE_FEATURE(NETIF_F_LRO, set_feature_lro);
 	err |= MLX5E_HANDLE_FEATURE(NETIF_F_HW_VLAN_CTAG_FILTER,
 				    set_feature_cvlan_filter);
@@ -4527,6 +4564,7 @@ static void mlx5e_build_nic_netdev(struct net_device *netdev)
 
 	netdev->features         |= NETIF_F_HIGHDMA;
 	netdev->features         |= NETIF_F_HW_VLAN_STAG_FILTER;
+	netdev->features         |=  NETIF_F_RX_HP;
 
 	netdev->priv_flags       |= IFF_UNICAST_FLT;
 

@@ -203,3 +203,7 @@ Redundancy) frames from one port to another in hardware.
 This should be set for devices which duplicate outgoing HSR (High-availability
 Seamless Redundancy) or PRP (Parallel Redundancy Protocol) tags automatically
 frames in hardware.
+
+* rx-hp-alloc
+
+This should be set for devices which can allocate hugepage-backed for RX buffers or at Page Pool.
