@@ -3271,6 +3271,8 @@ static int set_feature_rx_hugepage(struct net_device *netdev, bool enable)
 		goto out;
 	}
 
+	cur_params = &priv->channels.params;
+
 	new_params = *cur_params;
 	new_params.rx_huge = enable;
 
@@ -3282,8 +3284,11 @@ static int set_feature_rx_hugepage(struct net_device *netdev, bool enable)
 
 	printk(KERN_INFO "NETIF_F_RX_HP %d\n", enable);
 
-	err = mlx5e_safe_switch_params(priv, &new_params,
-				       NULL, NULL, reset);
+	err = mlx5e_validate_params(priv->mdev, &new_params);
+	if (err)
+		goto out;
+
+	err = mlx5e_safe_switch_params(priv, &new_params, NULL, NULL, true);
 out:
 	mutex_unlock(&priv->state_lock);
 	return err;
@@ -4567,7 +4572,6 @@ static void mlx5e_build_nic_netdev(struct net_device *netdev)
 
 	netdev->features         |= NETIF_F_HIGHDMA;
 	netdev->features         |= NETIF_F_HW_VLAN_STAG_FILTER;
-	netdev->features         |=  NETIF_F_RX_HP;
 
 	netdev->priv_flags       |= IFF_UNICAST_FLT;
 
