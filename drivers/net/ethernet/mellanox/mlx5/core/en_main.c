@@ -511,6 +511,7 @@ static int mlx5e_alloc_rq(struct mlx5e_params *params,
 		pp_params.dma_dir   = rq->buff.map_dir;
 
 		printk("page_pool %d created - size: %d\n", rq->ix, pool_size);
+		printk("RX Huge Allocation: %d\n", params->rx_huge);
 
 		/* page_pool can be used even when there is no rq->xdp_prog,
 		 * given page_pool does not handle DMA mapping there is no
@@ -4392,6 +4393,9 @@ void mlx5e_build_nic_params(struct mlx5e_priv *priv, struct mlx5e_xsk *xsk, u16 
 
 	/* AF_XDP */
 	params->xsk = xsk;
+
+	/* RX_HP */
+	params->rx_huge = false;
 
 	/* Do not update netdev->features directly in here
 	 * on mlx5e_attach_netdev() we will call mlx5e_update_features()
