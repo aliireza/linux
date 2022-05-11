@@ -64,3 +64,5 @@ To remove a manually installed kernel, run the following commands:
 locate -b -e 5.4.0-luigi | xargs -I{} sudo rm -fr {}
 sudo update-grub
 ```
+
+To reboot to a specific kernel, check here: https://docs.digitalocean.com/products/droplets/how-to/kernel/use-non-default/
