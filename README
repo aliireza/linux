@@ -16,3 +16,51 @@ several of them using the Restructured Text markup notation.
 Please read the Documentation/process/changes.rst file, as it contains the
 requirements for building and running the kernel, and information about
 the problems which may result by upgrading your kernel.
+
+## Building and Installing Kernel
+
+The easiest way to build Linux kernel is to get your current configuration using the following command:
+
+```bash
+cp -v /boot/config-$(uname -r) .config
+```
+
+**You should change `CONFIG_SYSTEM_TRUSTED_KEYS` to `""`**
+
+You need to install the following requirements before running make:
+
+```bash
+sudo apt-get install libncurses-dev gawk flex bison openssl libssl-dev dkms libelf-dev libudev-dev libpci-dev libiberty-dev autoconf
+```
+
+```bash
+make -j32 bindeb-pkg EXTRAVERSION=-buffer-shuffling
+cd ..
+sudo dpkg -i *.deb
+sudo reboot
+```
+
+**To check the order of the installed kernel in GRUB menu, you can look for `menuentry` in `/boot/grub/grub.cfg`.**
+
+You can also install the kernel without using `dpkg`, as follows:
+
+```bash
+sudo make modules_install
+sudo make install
+```
+
+## Removing Kernel
+
+To remove a kernel installed via `dpkg`, run the following commands:
+
+```bash
+dpkg --list | grep linux-image 
+sudo apt remove linux-{image,headers}-5.4.0-buffer-shuffling
+```
+
+To remove a manually installed kernel, run the following commands:
+
+```bash
+locate -b -e 5.4.0-luigi | xargs -I{} sudo rm -fr {}
+sudo update-grub
+```
